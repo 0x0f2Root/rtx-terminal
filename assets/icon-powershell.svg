@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Squircle background: sky blue at the top to deep indigo at the bottom. -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#55aaff"/>
+      <stop offset="0.5" stop-color="#3c6fe7"/>
+      <stop offset="1" stop-color="#2b37d0"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.3" cy="0.1" r="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.18"/>
+    </linearGradient>
+
+    <!-- Warm glass (left bar of the original): cream, coral, magenta, violet, blue. -->
+    <linearGradient id="warm" gradientUnits="userSpaceOnUse" x1="0" y1="132" x2="0" y2="380">
+      <stop offset="0" stop-color="#f8eea2"/>
+      <stop offset="0.28" stop-color="#e48060"/>
+      <stop offset="0.5" stop-color="#cc4caf"/>
+      <stop offset="0.74" stop-color="#8038ee"/>
+      <stop offset="1" stop-color="#2448e8"/>
+    </linearGradient>
+    <!-- Cool glass (right bar of the original): ice cyan, sky, cobalt, violet. -->
+    <linearGradient id="cool" gradientUnits="userSpaceOnUse" x1="300" y1="300" x2="404" y2="384">
+      <stop offset="0" stop-color="#a8f7ff"/>
+      <stop offset="0.38" stop-color="#479ef3"/>
+      <stop offset="0.7" stop-color="#2a5def"/>
+      <stop offset="1" stop-color="#7028e9"/>
+    </linearGradient>
+
+    <linearGradient id="sheen" gradientUnits="userSpaceOnUse" x1="110" y1="130" x2="300" y2="330">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.7"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#141a7a" flood-opacity="0.45"/>
+    </filter>
+
+    <clipPath id="squircle">
+      <rect x="16" y="16" width="480" height="480" rx="116"/>
+    </clipPath>
+
+    <!-- The >_ glyph, slanted like the PowerShell mark and the original bars. -->
+    <path id="chevron" d="M122 150 L186 150 L290 256 L186 362 L122 362 L226 256 Z"/>
+    <rect id="underscore" x="300" y="322" width="124" height="52" rx="14"/>
+    <!-- Masks include the stroke (clip paths would not), so the glass follows the real edge. -->
+    <mask id="chevronMask" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <use href="#chevron" fill="#fff" stroke="#fff" stroke-width="24" stroke-linejoin="round"/>
+    </mask>
+    <mask id="chevronRim" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <use href="#chevron" fill="#fff" stroke="#fff" stroke-width="24" stroke-linejoin="round"/>
+      <use href="#chevron" fill="#000" stroke="#000" stroke-width="15" stroke-linejoin="round"/>
+    </mask>
+    <mask id="underscoreMask" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <use href="#underscore" fill="#fff"/>
+    </mask>
+  </defs>
+
+  <!-- Background -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#bg)"/>
+  <g clip-path="url(#squircle)">
+    <rect x="0" y="0" width="512" height="512" fill="url(#bgGlow)"/>
+    <!-- Faint construction wireframe -->
+    <g fill="none" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2">
+      <path d="M58 118 H454 L256 474 Z"/>
+      <path d="M0 176 H512 M0 336 H512 M176 0 V512 M336 0 V512"/>
+      <circle cx="256" cy="256" r="150"/>
+      <path d="M16 16 L496 496 M496 16 L16 496" stroke-opacity="0.06"/>
+    </g>
+  </g>
+  <rect x="17.5" y="17.5" width="477" height="477" rx="114.5" fill="none" stroke="url(#rim)" stroke-width="3"/>
+
+  <!-- Glyph -->
+  <g transform="translate(264 256) scale(1.22) skewX(-10) translate(-256 -256)">
+    <g filter="url(#shadow)">
+      <use href="#chevron" fill="url(#warm)" stroke="url(#warm)" stroke-width="24" stroke-linejoin="round"/>
+      <use href="#underscore" fill="url(#cool)"/>
+    </g>
+
+    <!-- Glass: sheen, facets and an edge highlight on each shape -->
+    <g mask="url(#chevronMask)">
+      <rect x="100" y="120" width="220" height="270" fill="url(#sheen)"/>
+      <path d="M100 300 L320 170 L320 196 L100 330 Z" fill="#ffffff" opacity="0.12"/>
+      <path d="M100 360 L320 250 L320 262 L100 374 Z" fill="#ffffff" opacity="0.08"/>
+    </g>
+    <rect x="90" y="120" width="230" height="270" fill="url(#edge)" mask="url(#chevronRim)" opacity="0.75"/>
+    <g mask="url(#underscoreMask)">
+      <rect x="300" y="322" width="124" height="52" fill="url(#sheen)"/>
+      <path d="M296 372 L430 320 L430 332 L296 384 Z" fill="#ffffff" opacity="0.14"/>
+      <rect x="302" y="324" width="120" height="48" rx="12" fill="none" stroke="url(#edge)" stroke-width="4.5" opacity="0.75"/>
+    </g>
+  </g>
+</svg>
