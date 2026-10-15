@@ -1,10 +1,13 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { Server, utils, type Connection, type ServerChannel } from 'ssh2';
+import { serveSftp, type MemoryFs } from './sftp-fs';
 
 /**
  * A real SSH server (ssh2's Server) on 127.0.0.1 for tests. It speaks the full protocol, with a
- * throwaway host key, and runs a tiny line-based shell instead of a system shell.
+ * throwaway host key, and runs a tiny line-based shell instead of a system shell. It can also
+ * serve an in-memory SFTP filesystem and respond to fixed exec commands, for the file manager and
+ * resource monitor tests.
  */
 
 export type TestUser = {
@@ -14,6 +17,10 @@ export type TestUser = {
   publicKey?: string;
 };
 
+/** Canned response for one exec command; return null to reject the command. */
+export type ExecResult = { stdout?: string; stderr?: string; code?: number };
+export type ExecHandler = (command: string) => ExecResult | null;
+
 export type TestServer = {
   port: number;
   hostKey: Buffer;
@@ -21,6 +28,8 @@ export type TestServer = {
   sizes: { cols: number; rows: number }[];
   connections: number;
   shells: number;
+  /** Every exec command received, in order. */
+  execs: string[];
   /** Closes every client connection from the server side (a network drop). */
   dropAll(): void;
   close(): Promise<void>;
@@ -70,6 +79,10 @@ export async function startServer(options: {
   users: TestUser[];
   hostKey?: Buffer;
   port?: number;
+  /** When set, the server offers an SFTP subsystem backed by this filesystem. */
+  fs?: MemoryFs;
+  /** When set, the server answers exec requests with these canned results. */
+  exec?: ExecHandler;
 }): Promise<TestServer> {
   const hostKey = options.hostKey ?? generateHostKey();
   const clients = new Set<Connection>();
@@ -77,6 +90,7 @@ export async function startServer(options: {
     sizes: [] as { cols: number; rows: number }[],
     connections: 0,
     shells: 0,
+    execs: [] as string[],
   };
 
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
@@ -130,6 +144,24 @@ export async function startServer(options: {
           state.shells++;
           runShell(acceptShell(), username);
         });
+        session.on('exec', (acceptExec, rejectExec, info) => {
+          state.execs.push(info.command);
+          const result = options.exec?.(info.command) ?? null;
+          if (!result) {
+            rejectExec?.();
+            return;
+          }
+          const channel = acceptExec();
+          if (result.stdout) channel.write(result.stdout);
+          if (result.stderr) channel.stderr.write(result.stderr);
+          channel.exit(result.code ?? 0);
+          channel.end();
+        });
+        if (options.fs) {
+          session.on('sftp', (acceptSftp) => {
+            serveSftp(acceptSftp(), options.fs!);
+          });
+        }
       });
     });
   });
@@ -150,6 +182,9 @@ export async function startServer(options: {
     },
     get shells() {
       return state.shells;
+    },
+    get execs() {
+      return state.execs;
     },
     dropAll() {
       for (const client of clients) client.end();

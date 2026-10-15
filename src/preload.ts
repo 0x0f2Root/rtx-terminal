@@ -8,6 +8,7 @@ import {
   type SessionExit,
   type SshConnectState,
 } from './shared/api';
+import type { MonitorEvent, TransferProgress } from './shared/remote';
 
 /**
  * The renderer gets this object and nothing else: named operations over fixed channels. It never
@@ -49,6 +50,7 @@ const api: RtxApi = {
     writeClipboard: (text) =>
       ipcRenderer.invoke(IPC.systemWriteClipboard, text),
     pickDirectory: () => ipcRenderer.invoke(IPC.systemPickDirectory),
+    pickFiles: () => ipcRenderer.invoke(IPC.systemPickFiles),
     appInfo: () => ipcRenderer.invoke(IPC.systemAppInfo),
     toggleFullScreen: () => ipcRenderer.invoke(IPC.systemToggleFullScreen),
     quit: () => ipcRenderer.invoke(IPC.systemQuit),
@@ -65,6 +67,40 @@ const api: RtxApi = {
     forgetSecrets: (hostId) => ipcRenderer.invoke(IPC.sshForgetSecrets, hostId),
     configAliases: () => ipcRenderer.invoke(IPC.sshConfigAliases),
     pickKeyFile: () => ipcRenderer.invoke(IPC.sshPickKeyFile),
+  },
+  files: {
+    open: (request) => ipcRenderer.invoke(IPC.filesOpen, request),
+    close: (connectionId) => ipcRenderer.invoke(IPC.filesClose, connectionId),
+    home: (connectionId) => ipcRenderer.invoke(IPC.filesHome, connectionId),
+    list: (connectionId, path) =>
+      ipcRenderer.invoke(IPC.filesList, connectionId, path),
+    stat: (connectionId, path) =>
+      ipcRenderer.invoke(IPC.filesStat, connectionId, path),
+    mkdir: (connectionId, parent, name) =>
+      ipcRenderer.invoke(IPC.filesMkdir, connectionId, parent, name),
+    rename: (connectionId, from, to) =>
+      ipcRenderer.invoke(IPC.filesRename, connectionId, from, to),
+    remove: (connectionId, path, kind, recursive) =>
+      ipcRenderer.invoke(IPC.filesRemove, connectionId, path, kind, recursive),
+    transfer: (request) => ipcRenderer.invoke(IPC.filesTransfer, request),
+    cancelTransfer: (connectionId, transferId) =>
+      ipcRenderer.send(IPC.filesCancelTransfer, connectionId, transferId),
+    retryTransfer: (connectionId, transferId) =>
+      ipcRenderer.send(IPC.filesRetryTransfer, connectionId, transferId),
+    onTransfer: (listener) =>
+      subscribe<[TransferProgress]>(IPC.filesTransferProgress, listener),
+    onClosed: (listener) =>
+      subscribe<[string, string | null]>(IPC.filesClosed, listener),
+  },
+  monitor: {
+    start: (request) => ipcRenderer.invoke(IPC.monitorStart, request),
+    stop: (connectionId) => ipcRenderer.invoke(IPC.monitorStop, connectionId),
+    setInterval: (connectionId, intervalMs) =>
+      ipcRenderer.send(IPC.monitorSetInterval, connectionId, intervalMs),
+    setActive: (connectionId, active) =>
+      ipcRenderer.send(IPC.monitorSetActive, connectionId, active),
+    onEvent: (listener) =>
+      subscribe<[MonitorEvent]>(IPC.monitorEvent, listener),
   },
   store: {
     load: () => ipcRenderer.invoke(IPC.storeLoad),

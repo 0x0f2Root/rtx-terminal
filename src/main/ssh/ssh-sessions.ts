@@ -17,6 +17,7 @@ import {
   type HostKeyDecision,
   type SshAuth,
 } from './ssh-backend';
+import { SshConnection } from './ssh-connection';
 import type { SshConfigEntry } from './ssh-config';
 
 const MAX_KEY_BYTES = 64 * 1024;
@@ -39,6 +40,27 @@ export type SshOpenHooks = {
 
 export type OpenedSsh = {
   backend: SshBackend;
+  label: string;
+  remote: RemoteEndpoint;
+};
+
+export type OpenedConnection = {
+  connection: SshConnection;
+  label: string;
+  remote: RemoteEndpoint;
+};
+
+/** Everything needed to open a transport, resolved from a saved host, its ~/.ssh/config entry and
+ *  the keyring. Shared by the shell session and the SFTP/monitoring transport so both authenticate
+ *  and verify host keys identically. */
+type ResolvedTarget = {
+  host: SshHost;
+  address: string;
+  port: number;
+  username: string;
+  auth: SshAuth;
+  typedSecret: { kind: 'password' | 'passphrase'; value: string } | null;
+  verifyHostKey: (key: Buffer) => Promise<HostKeyDecision>;
   label: string;
   remote: RemoteEndpoint;
 };
@@ -80,18 +102,13 @@ async function readPrivateKey(file: string): Promise<Buffer> {
   }
 }
 
-/**
- * Turns a saved host into a live SSH session: fills blanks from ~/.ssh/config, gathers the
- * credentials, verifies the host key (asking the user when it is unknown or changed) and opens
- * the shell. Secrets the user typed are saved to the keyring only after login succeeded.
- */
-export async function openSshSession(
+/** Fills blanks from ~/.ssh/config, gathers credentials and builds the host-key verifier. Does not
+ *  open any channel, so it serves both the interactive shell and the SFTP/monitoring transport. */
+async function resolveSshTarget(
   request: SshCreateRequest,
-  cols: number,
-  rows: number,
   env: SshEnvironment,
   hooks: SshOpenHooks,
-): Promise<OpenedSsh> {
+): Promise<ResolvedTarget> {
   const host = await env.getHost(request.hostId);
   if (!host)
     throw new SshConnectError(
@@ -193,30 +210,84 @@ export async function openSshSession(
     return { ok: true };
   };
 
-  const backend = await SshBackend.connect({
-    host: address,
+  return {
+    host,
+    address,
     port,
     username,
     auth,
-    cols,
-    rows,
-    readyTimeoutMs: host.connectTimeout * 1000,
-    keepAliveMs: host.keepAlive * 1000,
+    typedSecret,
     verifyHostKey,
-    onProgress: hooks.onProgress,
-    signal: hooks.signal,
-  });
-
-  if (request.saveSecret && typedSecret) {
-    await env.secrets
-      .save(host.id, typedSecret.kind, typedSecret.value)
-      .catch(() => false);
-  }
-  return {
-    backend,
     label,
     remote: { hostId: host.id, host: address, port, username },
   };
+}
+
+/** Saves a password or passphrase the user typed, but only after a successful login. */
+async function saveTypedSecret(
+  request: SshCreateRequest,
+  target: ResolvedTarget,
+  env: SshEnvironment,
+): Promise<void> {
+  if (request.saveSecret && target.typedSecret) {
+    await env.secrets
+      .save(target.host.id, target.typedSecret.kind, target.typedSecret.value)
+      .catch(() => false);
+  }
+}
+
+/**
+ * Turns a saved host into a live SSH session with an interactive shell. Secrets the user typed are
+ * saved to the keyring only after login succeeded.
+ */
+export async function openSshSession(
+  request: SshCreateRequest,
+  cols: number,
+  rows: number,
+  env: SshEnvironment,
+  hooks: SshOpenHooks,
+): Promise<OpenedSsh> {
+  const target = await resolveSshTarget(request, env, hooks);
+  const backend = await SshBackend.connect({
+    host: target.address,
+    port: target.port,
+    username: target.username,
+    auth: target.auth,
+    cols,
+    rows,
+    readyTimeoutMs: target.host.connectTimeout * 1000,
+    keepAliveMs: target.host.keepAlive * 1000,
+    verifyHostKey: target.verifyHostKey,
+    onProgress: hooks.onProgress,
+    signal: hooks.signal,
+  });
+  await saveTypedSecret(request, target, env);
+  return { backend, label: target.label, remote: target.remote };
+}
+
+/**
+ * Opens a transport to a saved host with no interactive shell, for the file manager and the
+ * resource monitor. Authentication and host-key verification are identical to the shell session.
+ */
+export async function openSshConnection(
+  request: SshCreateRequest,
+  env: SshEnvironment,
+  hooks: SshOpenHooks,
+): Promise<OpenedConnection> {
+  const target = await resolveSshTarget(request, env, hooks);
+  const connection = await SshConnection.connect({
+    host: target.address,
+    port: target.port,
+    username: target.username,
+    auth: target.auth,
+    readyTimeoutMs: target.host.connectTimeout * 1000,
+    keepAliveMs: target.host.keepAlive * 1000,
+    verifyHostKey: target.verifyHostKey,
+    onProgress: hooks.onProgress,
+    signal: hooks.signal,
+  });
+  await saveTypedSecret(request, target, env);
+  return { connection, label: target.label, remote: target.remote };
 }
 
 type PendingPrompt = {

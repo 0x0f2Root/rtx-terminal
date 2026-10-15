@@ -352,7 +352,10 @@ html[data-app-theme='glass'] #root::before {
   z-index: 0;
   inset: 0;
   background-color: #0a4a78;
-  background-image: var(--glass-wallpaper, url('../assets/glass-backdrop.webp'));
+  background-image: var(
+    --glass-wallpaper,
+    url('../assets/glass-backdrop.webp')
+  );
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;

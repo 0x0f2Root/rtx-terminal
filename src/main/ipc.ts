@@ -20,19 +20,25 @@ import {
   type Preferences,
 } from '../shared/config';
 import {
+  connectionId,
   createRequest,
   dimension,
   fail,
   hostId,
   IpcValidationError,
   promptId,
+  remoteName,
+  remoteOpenRequest,
+  remotePath,
   requestId,
   sessionId,
+  transferRequest,
 } from './ipc-validation';
 import { listShells } from './shells';
 import type { SecretStore } from './ssh/secrets';
 import { listSshConfigAliases } from './ssh/ssh-config';
 import type { HostKeyPrompts } from './ssh/ssh-sessions';
+import type { RemoteManager } from './ssh/remote-manager';
 import type { SessionManager } from './sessions/session-manager';
 import type { Store } from './store';
 
@@ -43,6 +49,7 @@ const EXPORT_FORMAT = 'rtx-terminal.commands';
 
 export type IpcContext = {
   sessions: SessionManager;
+  remote: RemoteManager;
   store: Store;
   ssh: { prompts: HostKeyPrompts; secrets: SecretStore };
   /** True when the page in this frame is the app's own renderer. */
@@ -50,7 +57,7 @@ export type IpcContext = {
 };
 
 export function registerIpc(context: IpcContext): void {
-  const { sessions, store } = context;
+  const { sessions, remote, store } = context;
   let preferences: Preferences | null = null;
 
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
@@ -157,6 +164,80 @@ export function registerIpc(context: IpcContext): void {
       : result.filePaths[0];
   });
 
+  // --- remote files + monitor ---------------------------------------------------
+
+  handle(IPC.filesOpen, (event, request) =>
+    remote.openFiles(event.sender, remoteOpenRequest(request)),
+  );
+  handle(IPC.filesClose, (event, id) => {
+    remote.close(event.sender, connectionId(id));
+  });
+  handle(IPC.filesHome, (event, id) =>
+    remote.home(event.sender, connectionId(id)),
+  );
+  handle(IPC.filesList, (event, id, path) =>
+    remote.list(event.sender, connectionId(id), remotePath(path)),
+  );
+  handle(IPC.filesStat, (event, id, path) =>
+    remote.stat(event.sender, connectionId(id), remotePath(path)),
+  );
+  handle(IPC.filesMkdir, (event, id, parent, name) =>
+    remote.mkdir(
+      event.sender,
+      connectionId(id),
+      remotePath(parent),
+      remoteName(name),
+    ),
+  );
+  handle(IPC.filesRename, (event, id, from, to) =>
+    remote.rename(
+      event.sender,
+      connectionId(id),
+      remotePath(from),
+      remotePath(to),
+    ),
+  );
+  handle(IPC.filesRemove, (event, id, path, kind, recursive) => {
+    if (kind !== 'file' && kind !== 'directory') fail('Invalid delete target.');
+    if (typeof recursive !== 'boolean') fail('Invalid delete request.');
+    return remote.remove(
+      event.sender,
+      connectionId(id),
+      remotePath(path),
+      kind,
+      recursive,
+    );
+  });
+  handle(IPC.filesTransfer, (event, request) => {
+    const parsed = transferRequest(request);
+    return remote.transfer(event.sender, parsed, parsed.direction);
+  });
+  on(IPC.filesCancelTransfer, (event, id, transferId) =>
+    remote.cancelTransfer(
+      event.sender,
+      connectionId(id),
+      sessionId(transferId),
+    ),
+  );
+  on(IPC.filesRetryTransfer, (event, id, transferId) =>
+    remote.retryTransfer(event.sender, connectionId(id), sessionId(transferId)),
+  );
+
+  handle(IPC.monitorStart, (event, request) =>
+    remote.openMonitor(event.sender, remoteOpenRequest(request)),
+  );
+  handle(IPC.monitorStop, (event, id) => {
+    remote.close(event.sender, connectionId(id));
+  });
+  on(IPC.monitorSetInterval, (event, id, ms) => {
+    if (!Number.isFinite(ms)) return;
+    remote.setMonitorInterval(event.sender, connectionId(id), ms as number);
+  });
+  on(IPC.monitorSetActive, (event, id, active) => {
+    if (typeof active !== 'boolean') return;
+    remote.setMonitorActive(event.sender, connectionId(id), active);
+  });
+
   // --- system -----------------------------------------------------------------
 
   handle(IPC.systemShells, () => listShells());
@@ -217,6 +298,19 @@ export function registerIpc(context: IpcContext): void {
     return result.canceled || result.filePaths.length === 0
       ? null
       : result.filePaths[0];
+  });
+
+  handle(IPC.systemPickFiles, async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      title: 'Choose files to upload',
+      properties: ['openFile' as const, 'multiSelections' as const],
+      defaultPath: os.homedir(),
+    };
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled ? [] : result.filePaths;
   });
 
   // --- persisted state ----------------------------------------------------------
