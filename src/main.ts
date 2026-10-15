@@ -13,6 +13,7 @@ import started from 'electron-squirrel-startup';
 import { registerIpc } from './main/ipc';
 import { SessionManager } from './main/sessions/session-manager';
 import { KnownHosts } from './main/ssh/known-hosts';
+import { RemoteManager } from './main/ssh/remote-manager';
 import { SecretStore } from './main/ssh/secrets';
 import { lookupSshConfig } from './main/ssh/ssh-config';
 import { HostKeyPrompts } from './main/ssh/ssh-sessions';
@@ -47,15 +48,22 @@ const secrets = new SecretStore(
   safeStorage,
 );
 const hostKeyPrompts = new HostKeyPrompts();
+const sshEnvironment = {
+  getHost: (id: string) => store.sshHost(id),
+  knownHosts,
+  secrets,
+  lookupConfig: (alias: string) => lookupSshConfig(alias),
+  agentSocket: process.env.SSH_AUTH_SOCK,
+};
 const sessions = new SessionManager(app.getVersion(), {
   prompts: hostKeyPrompts,
-  env: {
-    getHost: (id) => store.sshHost(id),
-    knownHosts,
-    secrets,
-    lookupConfig: (alias) => lookupSshConfig(alias),
-    agentSocket: process.env.SSH_AUTH_SOCK,
-  },
+  env: sshEnvironment,
+});
+// The file manager and resource monitor share the SSH credentials and host-key trust with the
+// terminal, but open their own transports with independent lifecycles.
+const remote = new RemoteManager({
+  prompts: hostKeyPrompts,
+  env: sshEnvironment,
 });
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
@@ -189,6 +197,7 @@ if (!app.requestSingleInstanceLock()) {
 
     registerIpc({
       sessions,
+      remote,
       store,
       ssh: { prompts: hostKeyPrompts, secrets },
       isTrustedSender: (sender, frameUrl) =>

@@ -128,6 +128,46 @@ export function connectHost(
     );
 }
 
+/** Opens the remote file manager for a saved SSH host in a new tab or next to the active pane. */
+export function openHostFiles(
+  host: SshHost,
+  where: 'tab' | 'split-right' | 'split-down' = 'tab',
+): void {
+  const launch: LaunchSpec = {
+    ssh: { hostId: host.id },
+    label: host.name,
+    view: 'files',
+  };
+  const pane = activePane();
+  if (where === 'tab' || !pane) openTab(launch);
+  else
+    splitPane(
+      pane.id,
+      where === 'split-right' ? 'horizontal' : 'vertical',
+      launch,
+    );
+}
+
+/** Opens the resource monitor for a saved SSH host in a new tab or next to the active pane. */
+export function openHostMonitor(
+  host: SshHost,
+  where: 'tab' | 'split-right' | 'split-down' = 'tab',
+): void {
+  const launch: LaunchSpec = {
+    ssh: { hostId: host.id },
+    label: host.name,
+    view: 'monitor',
+  };
+  const pane = activePane();
+  if (where === 'tab' || !pane) openTab(launch);
+  else
+    splitPane(
+      pane.id,
+      where === 'split-right' ? 'horizontal' : 'vertical',
+      launch,
+    );
+}
+
 function activeSshPane() {
   const pane = activePane();
   return pane?.launch.ssh ? pane : null;

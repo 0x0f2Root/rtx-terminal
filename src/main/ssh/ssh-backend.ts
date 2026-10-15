@@ -76,7 +76,9 @@ export function checkPrivateKey(privateKey: Buffer, passphrase?: string): void {
   );
 }
 
-function classify(
+/** Maps a raw ssh2/socket error to a stable code and a message safe to show. Shared by the shell
+ *  backend and the transport used for SFTP and monitoring. */
+export function classify(
   error: Error & { code?: string; level?: string },
   host: string,
   port: number,

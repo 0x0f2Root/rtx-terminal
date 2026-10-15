@@ -4,6 +4,8 @@ import {
   ChevronRight,
   Copy,
   FolderPlus,
+  FolderTree,
+  Gauge,
   Pencil,
   Play,
   Plug,
@@ -63,6 +65,8 @@ import {
   deleteHost,
   disconnectHost,
   duplicateHost,
+  openHostFiles,
+  openHostMonitor,
   openProfile,
   runCommand,
 } from '../actions';
@@ -619,6 +623,15 @@ function HostItem({ host }: { host: SshHost }) {
           >
             <Unplug />
             Disconnect
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => openHostFiles(host)}>
+            <FolderTree />
+            Remote files
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => openHostMonitor(host)}>
+            <Gauge />
+            Resource monitor
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem

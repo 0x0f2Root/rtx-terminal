@@ -5,6 +5,15 @@ import type {
   ProfilesFile,
   SavedCommand,
 } from './config';
+import type {
+  ConflictResolution,
+  MonitorEvent,
+  RemoteListing,
+  RemoteResult,
+  RemoteStat,
+  TransferDirection,
+  TransferProgress,
+} from './remote';
 
 /**
  * The only surface the renderer has into the privileged side. Implemented by the preload script
@@ -160,6 +169,36 @@ export type ExportResult =
 
 export type Unsubscribe = () => void;
 
+/**
+ * Opening a file-manager view or a monitor over a saved SSH host. The transport is shared per host
+ * and reference counted; this mints one logical connection on top of it. Secrets are passed once,
+ * exactly as for a terminal session, and never returned.
+ */
+export type RemoteOpenRequest = {
+  hostId: string;
+  requestId: string;
+  password?: string;
+  passphrase?: string;
+  saveSecret?: boolean;
+  /** For a monitor: the initial polling interval in milliseconds. */
+  intervalMs?: number;
+};
+
+export type RemoteOpenResult =
+  | { ok: true; connectionId: string; remote: RemoteEndpoint; label: string }
+  | { ok: false; error: string; code?: SshErrorCode };
+
+/** A batch of files to upload to, or download from, one remote directory. */
+export type TransferRequest = {
+  connectionId: string;
+  direction: TransferDirection;
+  /** Upload: absolute local paths. Download: absolute remote paths. */
+  sources: string[];
+  /** Upload: absolute remote directory. Download: absolute local directory. */
+  destinationDir: string;
+  conflict: ConflictResolution;
+};
+
 export interface RtxApi {
   terminal: {
     create(request: CreateSessionRequest): Promise<CreateSessionResult>;
@@ -182,6 +221,8 @@ export interface RtxApi {
     writeClipboard(text: string): Promise<void>;
     /** Lets the user pick a directory with the native dialog; the path never comes from the page. */
     pickDirectory(): Promise<string | null>;
+    /** Lets the user pick one or more files with the native dialog, for uploads. */
+    pickFiles(): Promise<string[]>;
     appInfo(): Promise<AppInfo>;
     /** Toggles the window's full screen state and returns the new state. */
     toggleFullScreen(): Promise<boolean>;
@@ -202,6 +243,59 @@ export interface RtxApi {
     configAliases(): Promise<string[]>;
     /** Lets the user pick a private key with the native dialog. */
     pickKeyFile(): Promise<string | null>;
+  };
+  files: {
+    /** Opens (or reuses the transport for) a remote file view over a saved host. */
+    open(request: RemoteOpenRequest): Promise<RemoteOpenResult>;
+    /** Releases this file view; the shared transport closes when nothing else holds it. */
+    close(connectionId: string): Promise<void>;
+    /** The user's home directory, resolved through SFTP. */
+    home(connectionId: string): Promise<RemoteResult<{ path: string }>>;
+    list(
+      connectionId: string,
+      path: string,
+    ): Promise<RemoteResult<{ listing: RemoteListing }>>;
+    stat(
+      connectionId: string,
+      path: string,
+    ): Promise<RemoteResult<{ stat: RemoteStat }>>;
+    mkdir(
+      connectionId: string,
+      parent: string,
+      name: string,
+    ): Promise<RemoteResult<{ path: string }>>;
+    rename(
+      connectionId: string,
+      from: string,
+      to: string,
+    ): Promise<RemoteResult<{ path: string }>>;
+    /** Deletes a file, or a directory (recursively only when `recursive` is set). */
+    remove(
+      connectionId: string,
+      path: string,
+      kind: 'file' | 'directory',
+      recursive: boolean,
+    ): Promise<RemoteResult<{ removed: true }>>;
+    /** Queues uploads or downloads; progress arrives through onTransfer. */
+    transfer(
+      request: TransferRequest,
+    ): Promise<RemoteResult<{ ids: string[] }>>;
+    cancelTransfer(connectionId: string, transferId: string): void;
+    retryTransfer(connectionId: string, transferId: string): void;
+    onTransfer(listener: (progress: TransferProgress) => void): Unsubscribe;
+    /** Fired when a file view's transport drops; the view should show a disconnected state. */
+    onClosed(
+      listener: (connectionId: string, reason: string | null) => void,
+    ): Unsubscribe;
+  };
+  monitor: {
+    /** Opens a monitor over a saved host and starts sampling. */
+    start(request: RemoteOpenRequest): Promise<RemoteOpenResult>;
+    stop(connectionId: string): Promise<void>;
+    setInterval(connectionId: string, intervalMs: number): void;
+    /** Pauses or resumes sampling, e.g. when the view is hidden. */
+    setActive(connectionId: string, active: boolean): void;
+    onEvent(listener: (event: MonitorEvent) => void): Unsubscribe;
   };
   store: {
     load(): Promise<LoadedState>;
@@ -243,6 +337,25 @@ export const IPC = {
   sshForgetSecrets: 'ssh:forget-secrets',
   sshConfigAliases: 'ssh:config-aliases',
   sshPickKeyFile: 'ssh:pick-key-file',
+  systemPickFiles: 'system:pick-files',
+  filesOpen: 'files:open',
+  filesClose: 'files:close',
+  filesHome: 'files:home',
+  filesList: 'files:list',
+  filesStat: 'files:stat',
+  filesMkdir: 'files:mkdir',
+  filesRename: 'files:rename',
+  filesRemove: 'files:remove',
+  filesTransfer: 'files:transfer',
+  filesCancelTransfer: 'files:cancel-transfer',
+  filesRetryTransfer: 'files:retry-transfer',
+  filesTransferProgress: 'files:transfer-progress',
+  filesClosed: 'files:closed',
+  monitorStart: 'monitor:start',
+  monitorStop: 'monitor:stop',
+  monitorSetInterval: 'monitor:set-interval',
+  monitorSetActive: 'monitor:set-active',
+  monitorEvent: 'monitor:event',
   storeLoad: 'store:load',
   storeSavePreferences: 'store:save-preferences',
   storePickGlassWallpaper: 'store:pick-glass-wallpaper',

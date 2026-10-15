@@ -1,5 +1,11 @@
 import path from 'node:path';
-import type { CreateSessionRequest, SshCreateRequest } from '../shared/api';
+import type {
+  CreateSessionRequest,
+  RemoteOpenRequest,
+  SshCreateRequest,
+  TransferRequest,
+} from '../shared/api';
+import type { ConflictResolution, TransferDirection } from '../shared/remote';
 import { isRecord, isValidId, LIMITS } from '../shared/config';
 
 /**
@@ -96,4 +102,92 @@ export function createRequest(value: unknown): CreateSessionRequest {
   if (value.shell !== undefined) request.shell = absolutePath(value.shell);
   if (value.cwd !== undefined) request.cwd = absolutePath(value.cwd);
   return request;
+}
+
+// --- remote file manager and monitor ----------------------------------------
+
+/** A logical connection id minted by the main process; shaped like a session id (UUID). */
+export function connectionId(value: unknown): string {
+  return typeof value === 'string' && SESSION_ID.test(value)
+    ? value
+    : fail('Invalid connection id.');
+}
+
+/** A remote path is untrusted text passed only to SFTP; it just has to be a bounded, NUL-free,
+ *  absolute POSIX path. It is never interpolated into a shell command. */
+export function remotePath(value: unknown): string {
+  return typeof value === 'string' &&
+    value.length >= 1 &&
+    value.length <= LIMITS.path &&
+    value.startsWith('/') &&
+    !value.includes('\0')
+    ? value
+    : fail('Invalid remote path.');
+}
+
+/** A single path component for mkdir/rename: no separators, no NUL, not "." or "..". */
+export function remoteName(value: unknown): string {
+  return typeof value === 'string' &&
+    value.length >= 1 &&
+    value.length <= 255 &&
+    !value.includes('/') &&
+    !value.includes('\0') &&
+    value !== '.' &&
+    value !== '..'
+    ? value
+    : fail('Invalid name.');
+}
+
+export function conflictResolution(value: unknown): ConflictResolution {
+  return value === 'overwrite' || value === 'rename' || value === 'skip'
+    ? value
+    : fail('Invalid conflict resolution.');
+}
+
+export function remoteOpenRequest(value: unknown): RemoteOpenRequest {
+  if (!isRecord(value)) fail('Invalid open request.');
+  const request: RemoteOpenRequest = {
+    hostId: hostId(value.hostId),
+    requestId: requestId(value.requestId),
+  };
+  if (value.password !== undefined) request.password = secret(value.password);
+  if (value.passphrase !== undefined)
+    request.passphrase = secret(value.passphrase);
+  if (value.saveSecret !== undefined) {
+    if (typeof value.saveSecret !== 'boolean') fail('Invalid open request.');
+    request.saveSecret = value.saveSecret;
+  }
+  if (value.intervalMs !== undefined) {
+    if (!Number.isFinite(value.intervalMs)) fail('Invalid interval.');
+    request.intervalMs = value.intervalMs as number;
+  }
+  return request;
+}
+
+const MAX_TRANSFER_SOURCES = 2000;
+
+export function transferRequest(value: unknown): TransferRequest {
+  if (!isRecord(value)) fail('Invalid transfer request.');
+  const direction: TransferDirection =
+    value.direction === 'upload' || value.direction === 'download'
+      ? value.direction
+      : fail('Invalid transfer direction.');
+  if (!Array.isArray(value.sources) || value.sources.length === 0)
+    fail('No files to transfer.');
+  if (value.sources.length > MAX_TRANSFER_SOURCES) fail('Too many files.');
+  // Upload reads local (absolute) sources into a remote directory; download is the mirror image.
+  const sources = value.sources.map((source) =>
+    direction === 'upload' ? absolutePath(source) : remotePath(source),
+  );
+  const destinationDir =
+    direction === 'upload'
+      ? remotePath(value.destinationDir)
+      : absolutePath(value.destinationDir);
+  return {
+    connectionId: connectionId(value.connectionId),
+    direction,
+    sources,
+    destinationDir,
+    conflict: conflictResolution(value.conflict),
+  };
 }

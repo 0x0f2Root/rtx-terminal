@@ -22,6 +22,11 @@ export type LaunchSpec = {
   label?: string;
   /** Open a saved SSH host instead of a local shell. */
   ssh?: { hostId: string };
+  /**
+   * What this pane shows. Omitted or 'terminal' is an interactive shell; 'files' is the remote
+   * file manager and 'monitor' is the resource monitor, both over a saved SSH host.
+   */
+  view?: 'terminal' | 'files' | 'monitor';
 };
 
 export type PaneState = {
