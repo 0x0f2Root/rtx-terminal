@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { FolderOpen } from 'lucide-react';
+import { NameDialog } from '@/components/name-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -221,76 +222,6 @@ export function ProfileEditorDialog() {
             </Button>
             <Button type="submit">
               {existing ? 'Save changes' : 'Create session'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function NameDialog({
-  open,
-  title,
-  description,
-  label,
-  initial,
-  placeholder,
-  submitLabel,
-  allowEmpty = false,
-  onSubmit,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  description: string;
-  label: string;
-  initial: string;
-  placeholder?: string;
-  submitLabel: string;
-  allowEmpty?: boolean;
-  onSubmit: (value: string) => void;
-  onClose: () => void;
-}) {
-  const [value, setValue] = useState(initial);
-  useEffect(() => {
-    if (open) setValue(initial);
-  }, [open, initial]);
-  const invalid = !allowEmpty && !value.trim();
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <form
-          className="flex flex-col gap-6"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (invalid) return;
-            onSubmit(value.trim());
-            onClose();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          <Field>
-            <FieldLabel htmlFor="name-dialog-input">{label}</FieldLabel>
-            <Input
-              id="name-dialog-input"
-              autoFocus
-              value={value}
-              maxLength={LIMITS.name}
-              placeholder={placeholder}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => setValue(e.target.value)}
-            />
-          </Field>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={invalid}>
-              {submitLabel}
             </Button>
           </DialogFooter>
         </form>

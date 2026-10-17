@@ -1,101 +1,128 @@
-import { cn } from 'cn';
+import type { ReactNode } from 'react';
+import {
+  Frame,
+  FrameDescription,
+  FrameFooter,
+  FrameHeader,
+  FramePanel,
+  FrameTitle,
+} from '@/components/reui/frame';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { MetricBlock } from '@/shared/remote';
 
 /**
- * Surface primitives for the monitor. ReUI's Card and Frame cannot be installed in this
- * environment (their registry is unreachable), so `Panel` provides the equivalent card surface
- * with the same `--card` token the themes drive, keeping Full Black and Glass correct.
+ * One monitor region as a ReUI Frame: a header bar (title and what is plotted on the left, an
+ * optional control on the right) over a card panel. Frame surfaces use the --card token, so they
+ * stay translucent in Glass and black in Full Black.
  */
-export function Panel({
+export function MetricFrame({
+  title,
+  description,
+  icon,
+  action,
+  flush = false,
+  footer,
   className,
   children,
 }: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        'flex min-w-0 flex-col rounded-lg border border-border bg-card',
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-export function PanelHeader({
-  title,
-  icon,
-  action,
-}: {
   title: string;
-  icon?: React.ReactNode;
-  action?: React.ReactNode;
+  description?: ReactNode;
+  icon?: ReactNode;
+  action?: ReactNode;
+  /** Edge-to-edge content such as a data-grid, as in ReUI's Frame + data-grid composition. */
+  flush?: boolean;
+  /** A bar under the panel, e.g. details for the selected row. */
+  footer?: ReactNode;
+  className?: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
-      {icon}
-      <span className="text-sm font-medium tracking-tight">{title}</span>
-      {action && (
-        <div className="ml-auto flex items-center gap-1">{action}</div>
-      )}
-    </div>
+    <Frame spacing="sm" stacked={flush} dense={flush} className={className}>
+      <FrameHeader className="flex-row items-center gap-2">
+        {icon && (
+          <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
+        )}
+        <div className="flex min-w-0 flex-col">
+          <FrameTitle>{title}</FrameTitle>
+          {description && (
+            <FrameDescription className="truncate">
+              {description}
+            </FrameDescription>
+          )}
+        </div>
+        {action && (
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {action}
+          </div>
+        )}
+      </FrameHeader>
+      <FramePanel className={flush ? 'p-0 shadow-none' : 'min-w-0'}>
+        {children}
+      </FramePanel>
+      {footer && <FrameFooter>{footer}</FrameFooter>}
+    </Frame>
   );
 }
 
-/** A compact overview tile: a current value with a unit, a sub-line, and loading/unavailable states. */
-export function MetricCard({
-  title,
+/**
+ * One overview statistic. While the first sample is pending it shows a skeleton in its real
+ * layout; an unavailable metric says so (with the reason) instead of showing a zero.
+ */
+export function StatTile({
+  label,
   icon,
   block,
-  render,
+  value,
+  unit,
+  detail,
+  trend,
 }: {
-  title: string;
-  icon: React.ReactNode;
+  label: string;
+  icon: ReactNode;
   block: MetricBlock<unknown> | null;
-  render: () => { value: string; unit?: string; sub?: string };
+  /** The headline value; null while it cannot be measured yet. */
+  value: string | null;
+  unit?: string;
+  detail?: ReactNode;
+  trend?: ReactNode;
 }) {
   return (
-    <Panel className="gap-1 p-3">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground [&_svg]:size-3.5">
         {icon}
-        {title}
+        {label}
       </div>
       {block === null ? (
-        <Skeleton className="mt-1 h-7 w-20" />
+        <>
+          <Skeleton className="h-7 w-20" />
+          <Skeleton className="h-4 w-28" />
+        </>
       ) : block.state === 'unavailable' ? (
-        <div className="mt-1 flex flex-col gap-0.5">
+        <>
           <span className="text-sm text-muted-foreground">Unavailable</span>
           <span
-            className="text-xs text-muted-foreground/70"
+            className="truncate text-xs text-muted-foreground"
             title={block.reason}
           >
             {block.reason}
           </span>
-        </div>
+        </>
       ) : (
-        (() => {
-          const { value, unit, sub } = render();
-          return (
-            <>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-semibold tabular-nums tracking-tight">
-                  {value}
-                </span>
-                {unit && (
-                  <span className="text-xs text-muted-foreground">{unit}</span>
-                )}
-              </div>
-              {sub && (
-                <span className="text-xs text-muted-foreground">{sub}</span>
-              )}
-            </>
-          );
-        })()
+        <>
+          <div className="flex items-baseline gap-1">
+            <span className="text-xl font-semibold tracking-tight tabular-nums">
+              {value ?? '—'}
+            </span>
+            {unit && value !== null && (
+              <span className="text-xs text-muted-foreground">{unit}</span>
+            )}
+          </div>
+          <span className="truncate text-xs text-muted-foreground">
+            {value === null ? 'Measuring…' : detail}
+          </span>
+          {trend}
+        </>
       )}
-    </Panel>
+    </div>
   );
 }

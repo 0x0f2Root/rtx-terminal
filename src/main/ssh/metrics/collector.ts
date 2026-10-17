@@ -200,7 +200,7 @@ export class MetricsCollector {
       connectionId: this.connectionId,
       timestamp,
       facts: this.facts(sections),
-      cpu: this.cpu(sections, elapsedSeconds),
+      cpu: this.cpu(sections),
       memory: this.memory(sections),
       filesystems: this.filesystems(sections),
       diskIo: this.diskIo(sections, elapsedSeconds),
@@ -216,10 +216,7 @@ export class MetricsCollector {
     return { os, uptimeSeconds: parseUptime(sections.UP) };
   }
 
-  private cpu(
-    sections: Record<Marker, string>,
-    elapsedSeconds: number,
-  ): MetricBlock<CpuMetric> {
+  private cpu(sections: Record<Marker, string>): MetricBlock<CpuMetric> {
     const snapshot = parseProcStat(sections.CPU);
     if (!snapshot) return missing('/proc/stat was not readable.');
     const cores =
@@ -228,10 +225,11 @@ export class MetricsCollector {
     const previous = this.previousCpu;
     this.previousCpu = snapshot;
     if (!previous) {
-      // First tick: utilization needs two samples, so report a zero baseline this once.
+      // Utilization compares two samples; the first has nothing to compare with, so it is
+      // reported as not yet measured. Cores and load averages are real on every sample.
       return ok({
-        utilization: 0,
-        breakdown: { user: 0, system: 0, idle: 100, iowait: 0 },
+        utilization: null,
+        breakdown: null,
         cores,
         loadAverage,
         perCore: null,
@@ -243,11 +241,14 @@ export class MetricsCollector {
       previous.perCore.length > 0 &&
       previous.perCore.length === snapshot.perCore.length
     ) {
-      perCore = snapshot.perCore.map(
+      const cores = snapshot.perCore.map(
         (core, i) => cpuUtilization(previous.perCore[i], core).utilization,
       );
+      // A per-core breakdown is shown only when every core could be measured.
+      perCore = cores.every((value) => value !== null)
+        ? (cores as number[])
+        : null;
     }
-    void elapsedSeconds;
     return ok({ ...overall, cores, loadAverage, perCore });
   }
 
@@ -277,25 +278,18 @@ export class MetricsCollector {
     const previous = this.previousDisk;
     this.previousDisk = current;
     if (current.size === 0) return missing('/proc/diskstats was not readable.');
-    if (!previous || elapsedSeconds <= 0)
-      return ok(
-        [...current.keys()].map((device) => ({
-          device,
-          readBytesPerSecond: 0,
-          writeBytesPerSecond: 0,
-        })),
-      );
     const io: DiskIoMetric[] = [];
     for (const [device, counters] of current) {
-      const prev = previous.get(device);
+      // A device with no earlier sample (the first tick, or one just attached) has no rate yet.
+      const prev = previous?.get(device);
       io.push({
         device,
         readBytesPerSecond: prev
           ? rate(prev.readBytes, counters.readBytes, elapsedSeconds)
-          : 0,
+          : null,
         writeBytesPerSecond: prev
           ? rate(prev.writeBytes, counters.writeBytes, elapsedSeconds)
-          : 0,
+          : null,
       });
     }
     return ok(io);
@@ -311,16 +305,16 @@ export class MetricsCollector {
     if (current.size === 0) return missing('/proc/net/dev was not readable.');
     const interfaces: NetworkInterfaceMetric[] = [];
     for (const [name, counters] of current) {
+      // An interface with no earlier sample (the first tick, or one just brought up) has no rate yet.
       const prev = previous?.get(name);
-      const canRate = prev && elapsedSeconds > 0;
       interfaces.push({
         name,
-        receiveBytesPerSecond: canRate
+        receiveBytesPerSecond: prev
           ? rate(prev.receiveBytes, counters.receiveBytes, elapsedSeconds)
-          : 0,
-        transmitBytesPerSecond: canRate
+          : null,
+        transmitBytesPerSecond: prev
           ? rate(prev.transmitBytes, counters.transmitBytes, elapsedSeconds)
-          : 0,
+          : null,
         receiveBytes: counters.receiveBytes,
         transmitBytes: counters.transmitBytes,
         receivePackets: counters.receivePackets,

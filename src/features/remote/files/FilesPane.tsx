@@ -1,20 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
+import type { SortingState } from '@tanstack/react-table';
 import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  ClipboardCopy,
   CornerUpRight,
+  Download,
+  FolderOpen,
   FolderPlus,
+  Pencil,
   RotateCw,
+  Search,
   SquareTerminal,
+  Trash2,
   Unplug,
   Upload,
-  Download as DownloadIcon,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { IconButton } from '@/components/icon-button';
+import { NameDialog } from '@/components/name-dialog';
 import { Badge } from '@/components/reui/badge';
-import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,6 +41,30 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
+  Breadcrumb,
+  BreadcrumbEllipsis,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { Button } from '@/components/ui/button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -33,14 +72,14 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Input } from '@/components/ui/input';
-import { Spinner } from '@/components/ui/spinner';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { cn } from 'cn';
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group';
+import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
 import type {
   ConflictResolution,
   RemoteDirEntry,
@@ -53,13 +92,19 @@ import { openTab, useWorkspace } from '@/state/workspace';
 import { openRemote } from '../remote-open';
 import { FileTable } from './FileTable';
 import { TransferPanel } from './TransferPanel';
-import { ConflictDialog, PromptDialog } from './file-dialogs';
+import { ConflictDialog } from './file-dialogs';
 import {
   breadcrumbs,
+  collapseCrumbs,
+  entryNameProblem,
+  isDirectoryLike,
   joinPath,
+  moveCursor,
   parentPath,
+  pressSelection,
   sortEntries,
-  type SortDir,
+  type CursorMove,
+  type Selection,
   type SortKey,
 } from './files-helpers';
 
@@ -80,6 +125,19 @@ type PendingTransfer = {
   destinationDir: string;
 };
 
+const EMPTY_SELECTION: Selection = { selected: new Set(), anchor: null };
+const DEFAULT_SORTING: SortingState = [{ id: 'name', desc: false }];
+const SORT_KEYS: readonly SortKey[] = ['name', 'size', 'mtime', 'type'];
+
+const CURSOR_KEYS: Record<string, CursorMove> = {
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  Home: 'home',
+  End: 'end',
+  PageUp: 'pageUp',
+  PageDown: 'pageDown',
+};
+
 export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
   const hostId = useWorkspace((s) => s.panes[paneId]?.launch.ssh?.hostId);
   const label = useWorkspace((s) => s.panes[paneId]?.launch.label);
@@ -88,25 +146,24 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
     status: 'connecting',
     progress: null,
   });
+  /** Bumped by Reconnect to open a fresh connection for the same host. */
+  const [attempt, setAttempt] = useState(0);
   const connectionIdRef = useRef<string | null>(null);
   const [path, setPath] = useState('/');
+  const pathRef = useRef(path);
+  pathRef.current = path;
   const [entries, setEntries] = useState<RemoteDirEntry[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  const [selection, setSelection] = useState<Set<string>>(new Set());
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
-    key: 'name',
-    dir: 'asc',
-  });
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
+  const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
   const [history, setHistory] = useState<{ back: string[]; forward: string[] }>(
-    {
-      back: [],
-      forward: [],
-    },
+    { back: [], forward: [] },
   );
   const [filter, setFilter] = useState('');
   const [transfers, setTransfers] = useState<TransferProgress[]>([]);
-  const anchorRef = useRef<string | null>(null);
+  /** The row the context menu was opened on; null for the empty area. */
+  const [menuTarget, setMenuTarget] = useState<string | null>(null);
 
   const [mkdirOpen, setMkdirOpen] = useState(false);
   const [gotoOpen, setGotoOpen] = useState(false);
@@ -122,6 +179,7 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
       return;
     }
     let disposed = false;
+    setConn({ status: 'connecting', progress: null });
     void (async () => {
       const result = await openRemote('files', hostId, {
         onProgress: (progress) =>
@@ -150,7 +208,35 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
       if (id) void window.rtx.files.close(id);
       connectionIdRef.current = null;
     };
-  }, [hostId]);
+  }, [hostId, attempt]);
+
+  // --- directory loading -----------------------------------------------------
+
+  /** Lists `target`. `select` names an entry to select afterwards (a new folder, a renamed item). */
+  const load = useCallback(
+    async (target: string, select?: string): Promise<boolean> => {
+      const id = connectionIdRef.current;
+      if (!id) return false;
+      setListLoading(true);
+      setListError(null);
+      const result = await window.rtx.files.list(id, target);
+      if (connectionIdRef.current !== id) return false;
+      setListLoading(false);
+      if (!result.ok) {
+        setListError(result.error);
+        return false;
+      }
+      setEntries(result.listing.entries);
+      setPath(result.listing.path);
+      setSelection(
+        select
+          ? { selected: new Set([select]), anchor: select }
+          : EMPTY_SELECTION,
+      );
+      return true;
+    },
+    [],
+  );
 
   // Route transfer progress and transport-close for this connection only.
   useEffect(() => {
@@ -163,197 +249,191 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
         next[index] = progress;
         return next;
       });
+      // An upload that lands in the folder on screen shows up without a manual refresh.
+      if (
+        progress.direction === 'upload' &&
+        progress.status === 'completed' &&
+        parentPath(progress.destination) === pathRef.current
+      )
+        void load(pathRef.current);
     });
     const offClosed = window.rtx.files.onClosed((id, reason) => {
       if (id !== connectionIdRef.current) return;
+      connectionIdRef.current = null;
       setConn({ status: 'disconnected', reason });
     });
     return () => {
       offTransfer();
       offClosed();
     };
-  }, []);
+  }, [load]);
 
-  // --- directory loading -----------------------------------------------------
-
-  const load = useCallback(async (target: string): Promise<boolean> => {
-    const id = connectionIdRef.current;
-    if (!id) return false;
-    setListLoading(true);
-    setListError(null);
-    const result = await window.rtx.files.list(id, target);
-    setListLoading(false);
-    if (!result.ok) {
-      setListError(result.error);
-      return false;
-    }
-    setEntries(result.listing.entries);
-    setPath(result.listing.path);
-    setSelection(new Set());
-    anchorRef.current = null;
-    return true;
-  }, []);
-
-  // The first listing starts at the resolved home directory, never an assumed path.
+  // The first listing starts at the home directory the server resolves, never an assumed path.
+  const readyId = conn.status === 'ready' ? conn.connectionId : null;
   useEffect(() => {
-    if (conn.status !== 'ready') return;
+    if (!readyId) return;
     void (async () => {
-      const home = await window.rtx.files.home(conn.connectionId);
+      const home = await window.rtx.files.home(readyId);
       await load(home.ok ? home.path : '/');
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn.status]);
+  }, [readyId, load]);
 
   const navigate = useCallback(
     async (target: string) => {
-      const current = path;
-      const ok = await load(target);
-      if (ok) setHistory((h) => ({ back: [...h.back, current], forward: [] }));
+      const from = pathRef.current;
+      if (await load(target))
+        setHistory((h) => ({ back: [...h.back, from], forward: [] }));
     },
-    [path, load],
+    [load],
   );
 
   const goBack = useCallback(async () => {
-    setHistory((h) => {
-      if (h.back.length === 0) return h;
-      const target = h.back[h.back.length - 1];
-      void load(target);
-      return { back: h.back.slice(0, -1), forward: [path, ...h.forward] };
-    });
-  }, [load, path]);
+    const target = history.back.at(-1);
+    if (target === undefined) return;
+    const from = pathRef.current;
+    if (await load(target))
+      setHistory((h) => ({
+        back: h.back.slice(0, -1),
+        forward: [from, ...h.forward],
+      }));
+  }, [history.back, load]);
 
   const goForward = useCallback(async () => {
-    setHistory((h) => {
-      if (h.forward.length === 0) return h;
-      const [target, ...rest] = h.forward;
-      void load(target);
-      return { back: [...h.back, path], forward: rest };
-    });
-  }, [load, path]);
+    const target = history.forward[0];
+    if (target === undefined) return;
+    const from = pathRef.current;
+    if (await load(target))
+      setHistory((h) => ({
+        back: [...h.back, from],
+        forward: h.forward.slice(1),
+      }));
+  }, [history.forward, load]);
 
-  // --- selection -------------------------------------------------------------
+  // --- view ------------------------------------------------------------------
 
   const visible = useMemo(() => {
-    const filtered = filter
-      ? entries.filter((e) =>
-          e.name.toLowerCase().includes(filter.toLowerCase()),
-        )
+    const term = filter.trim().toLowerCase();
+    const filtered = term
+      ? entries.filter((e) => e.name.toLowerCase().includes(term))
       : entries;
-    return sortEntries(filtered, sort.key, sort.dir);
-  }, [entries, filter, sort]);
+    const active = sorting[0];
+    const key: SortKey = SORT_KEYS.includes(active?.id as SortKey)
+      ? (active.id as SortKey)
+      : 'name';
+    return sortEntries(filtered, key, active?.desc ? 'desc' : 'asc');
+  }, [entries, filter, sorting]);
 
-  const select = useCallback(
-    (name: string, event: React.MouseEvent) => {
-      setSelection((prev) => {
-        if (event.shiftKey && anchorRef.current) {
-          const names = visible.map((e) => e.name);
-          const from = names.indexOf(anchorRef.current);
-          const to = names.indexOf(name);
-          if (from !== -1 && to !== -1) {
-            const [lo, hi] = from < to ? [from, to] : [to, from];
-            return new Set(names.slice(lo, hi + 1));
-          }
-        }
-        if (event.ctrlKey || event.metaKey) {
-          const next = new Set(prev);
-          if (next.has(name)) next.delete(name);
-          else next.add(name);
-          anchorRef.current = name;
-          return next;
-        }
-        anchorRef.current = name;
-        return new Set([name]);
-      });
-    },
-    [visible],
+  const order = useMemo(() => visible.map((e) => e.name), [visible]);
+  const byName = useMemo(
+    () => new Map(entries.map((e) => [e.name, e])),
+    [entries],
   );
-
-  const openEntry = useCallback(
-    (entry: RemoteDirEntry) => {
-      if (
-        entry.type === 'directory' ||
-        (entry.type === 'symlink' && entry.resolvedType === 'directory')
-      )
-        void navigate(joinPath(path, entry.name));
-    },
-    [navigate, path],
-  );
-
-  const onSort = useCallback((key: SortKey) => {
-    setSort((s) =>
-      s.key === key
-        ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: 'asc' },
-    );
-  }, []);
+  const cursorIndex =
+    selection.anchor !== null ? order.indexOf(selection.anchor) : -1;
 
   // --- operations ------------------------------------------------------------
 
   const connectionId = conn.status === 'ready' ? conn.connectionId : null;
 
+  const openEntry = useCallback(
+    (name: string) => {
+      const entry = byName.get(name);
+      if (entry && isDirectoryLike(entry))
+        void navigate(joinPath(pathRef.current, entry.name));
+    },
+    [byName, navigate],
+  );
+
   const doMkdir = useCallback(
     async (name: string) => {
       if (!connectionId) return;
-      const result = await window.rtx.files.mkdir(connectionId, path, name);
-      if (result.ok) void load(path);
-      else toast.error(`Could not create folder: ${result.error}`);
+      const result = await window.rtx.files.mkdir(
+        connectionId,
+        pathRef.current,
+        name,
+      );
+      if (result.ok) void load(pathRef.current, name);
+      else
+        toast.error('Could not create the folder.', {
+          description: result.error,
+        });
     },
-    [connectionId, path, load],
+    [connectionId, load],
   );
 
   const doRename = useCallback(
     async (name: string) => {
-      if (!connectionId || !renameTarget) return;
+      if (!connectionId || !renameTarget || name === renameTarget.name) return;
       const result = await window.rtx.files.rename(
         connectionId,
-        joinPath(path, renameTarget.name),
-        joinPath(path, name),
+        joinPath(pathRef.current, renameTarget.name),
+        joinPath(pathRef.current, name),
       );
-      if (result.ok) void load(path);
-      else toast.error(`Could not rename: ${result.error}`);
+      if (result.ok) void load(pathRef.current, name);
+      else toast.error('Could not rename.', { description: result.error });
     },
-    [connectionId, path, renameTarget, load],
+    [connectionId, renameTarget, load],
   );
 
   const doDelete = useCallback(async () => {
     if (!connectionId || !deleteTarget) return;
-    const target = joinPath(path, deleteTarget.name);
+    // A symbolic link is removed as a file and never followed into its target.
     const kind = deleteTarget.type === 'directory' ? 'directory' : 'file';
     const result = await window.rtx.files.remove(
       connectionId,
-      target,
+      joinPath(pathRef.current, deleteTarget.name),
       kind,
       kind === 'directory',
     );
     setDeleteTarget(null);
-    if (result.ok) void load(path);
-    else toast.error(`Could not delete: ${result.error}`);
-  }, [connectionId, path, deleteTarget, load]);
+    if (result.ok) void load(pathRef.current);
+    else toast.error('Could not delete.', { description: result.error });
+  }, [connectionId, deleteTarget, load]);
 
   const startUpload = useCallback(async () => {
     const files = await window.rtx.system.pickFiles();
-    if (files.length === 0) return;
-    setPending({ direction: 'upload', sources: files, destinationDir: path });
-  }, [path]);
+    if (files.length > 0)
+      setPending({
+        direction: 'upload',
+        sources: files,
+        destinationDir: pathRef.current,
+      });
+  }, []);
 
-  const startDownload = useCallback(async () => {
-    if (selection.size === 0) return;
+  /** Downloads exactly `names`, never a stale selection captured earlier. */
+  const startDownload = useCallback(async (names: string[]) => {
+    if (names.length === 0) return;
     const dir = await window.rtx.system.pickDirectory();
     if (!dir) return;
-    const sources = [...selection].map((name) => joinPath(path, name));
-    setPending({ direction: 'download', sources, destinationDir: dir });
-  }, [selection, path]);
+    setPending({
+      direction: 'download',
+      sources: names.map((name) => joinPath(pathRef.current, name)),
+      destinationDir: dir,
+    });
+  }, []);
 
   const runTransfer = useCallback(
     async (conflict: ConflictResolution) => {
       if (!connectionId || !pending) return;
-      const request = { connectionId, conflict, ...pending };
-      const result = await window.rtx.files.transfer(request);
+      const result = await window.rtx.files.transfer({
+        connectionId,
+        conflict,
+        ...pending,
+      });
       setPending(null);
-      if (!result.ok) toast.error(`Transfer failed: ${result.error}`);
+      if (!result.ok)
+        toast.error('The transfer could not start.', {
+          description: result.error,
+        });
     },
     [connectionId, pending],
   );
+
+  const copyPath = useCallback((name: string) => {
+    void window.rtx.system
+      .writeClipboard(joinPath(pathRef.current, name))
+      .then(() => toast.success('Path copied.'));
+  }, []);
 
   const openTerminalHere = useCallback(() => {
     if (!hostId) return;
@@ -361,33 +441,117 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
     openTab({ ssh: { hostId }, label: host?.name ?? label ?? 'SSH' });
   }, [hostId, label]);
 
-  const displayName =
-    conn.status === 'ready' ? conn.label : (label ?? 'Remote files');
-  const selectionCount = selection.size;
+  // --- interaction -----------------------------------------------------------
+
+  const onRowMouseDown = useCallback(
+    (name: string, event: MouseEvent) => {
+      setSelection((current) =>
+        pressSelection(order, current, name, {
+          shift: event.shiftKey,
+          toggle: event.ctrlKey || event.metaKey,
+        }),
+      );
+    },
+    [order],
+  );
+
+  const onContextMenuTarget = useCallback((name: string | null) => {
+    setMenuTarget(name);
+    // Right-clicking outside the selection acts on that row alone, as in desktop file managers.
+    if (name)
+      setSelection((current) =>
+        current.selected.has(name)
+          ? current
+          : { selected: new Set([name]), anchor: name },
+      );
+  }, []);
+
+  const onGridKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      const move = CURSOR_KEYS[event.key];
+      if (move && !event.altKey) {
+        event.preventDefault();
+        const next = moveCursor(order, selection.anchor, move);
+        if (next === null) return;
+        setSelection((current) =>
+          event.shiftKey && current.anchor !== null
+            ? {
+                ...pressSelection(order, current, next, {
+                  shift: true,
+                  toggle: false,
+                }),
+                anchor: next,
+              }
+            : { selected: new Set([next]), anchor: next },
+        );
+        return;
+      }
+      const cursor = selection.anchor ? byName.get(selection.anchor) : null;
+      const handled = () => event.preventDefault();
+      if (event.key === 'Enter' && cursor) {
+        handled();
+        openEntry(cursor.name);
+      } else if (
+        event.key === 'Backspace' ||
+        (event.altKey && event.key === 'ArrowUp')
+      ) {
+        handled();
+        if (pathRef.current !== '/') void navigate(parentPath(pathRef.current));
+      } else if (event.altKey && event.key === 'ArrowLeft') {
+        handled();
+        void goBack();
+      } else if (event.altKey && event.key === 'ArrowRight') {
+        handled();
+        void goForward();
+      } else if (event.key === 'Delete' && cursor) {
+        handled();
+        setDeleteTarget(cursor);
+      } else if (event.key === 'F2' && cursor) {
+        handled();
+        setRenameTarget(cursor);
+      } else if (event.key === 'F5') {
+        handled();
+        void load(pathRef.current);
+      } else if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+        handled();
+        setSelection({ selected: new Set(order), anchor: order[0] ?? null });
+      } else if (event.key === 'Escape') {
+        handled();
+        setSelection(EMPTY_SELECTION);
+      }
+    },
+    [
+      order,
+      selection.anchor,
+      byName,
+      openEntry,
+      navigate,
+      goBack,
+      goForward,
+      load,
+    ],
+  );
 
   // --- render ----------------------------------------------------------------
+
+  const displayName =
+    conn.status === 'ready' ? conn.label : (label ?? 'Remote files');
 
   if (conn.status === 'connecting')
     return (
       <PaneShell>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner />
-            {conn.progress === 'authenticating'
-              ? 'Authenticating…'
-              : conn.progress === 'connected'
-                ? 'Opening SFTP…'
-                : `Connecting to ${displayName}…`}
-          </div>
+        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Spinner />
+          {conn.progress === 'authenticating'
+            ? 'Authenticating…'
+            : conn.progress === 'connected'
+              ? 'Opening SFTP…'
+              : `Connecting to ${displayName}…`}
         </div>
       </PaneShell>
     );
 
-  if (conn.status === 'error' || conn.status === 'disconnected') {
-    const message =
-      conn.status === 'error'
-        ? conn.error
-        : (conn.reason ?? 'The connection was closed.');
+  if (conn.status === 'error' || conn.status === 'disconnected')
     return (
       <PaneShell>
         <Empty className="flex-1">
@@ -397,57 +561,91 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
             </EmptyMedia>
             <EmptyTitle>
               {conn.status === 'error'
-                ? 'Could not open files'
+                ? 'Could not open remote files'
                 : 'Disconnected'}
             </EmptyTitle>
-            <EmptyDescription>{message}</EmptyDescription>
+            <EmptyDescription>
+              {conn.status === 'error'
+                ? conn.error
+                : (conn.reason ?? 'The connection was closed.')}
+            </EmptyDescription>
           </EmptyHeader>
-          <EmptyContent className="items-center">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => closePane(paneId)}
-            >
+          <EmptyContent className="flex-row justify-center">
+            <Button onClick={() => setAttempt((n) => n + 1)}>
+              <RotateCw data-icon="inline-start" />
+              Reconnect
+            </Button>
+            <Button variant="outline" onClick={() => closePane(paneId)}>
               Close
             </Button>
           </EmptyContent>
         </Empty>
       </PaneShell>
     );
-  }
+
+  const selectedNames = order.filter((name) => selection.selected.has(name));
+  const target = menuTarget ? byName.get(menuTarget) : null;
+  const crumbs = collapseCrumbs(breadcrumbs(path));
+
+  const emptyMessage = filter.trim() ? (
+    <div className="flex flex-col items-center gap-2 py-6 text-sm text-muted-foreground">
+      No items match “{filter.trim()}”.
+      <Button size="sm" variant="outline" onClick={() => setFilter('')}>
+        Clear filter
+      </Button>
+    </div>
+  ) : (
+    <div className="flex flex-col items-center gap-2 py-6 text-sm text-muted-foreground">
+      This folder is empty.
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={() => void startUpload()}>
+          <Upload data-icon="inline-start" />
+          Upload files
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setMkdirOpen(true)}>
+          <FolderPlus data-icon="inline-start" />
+          New folder
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <PaneShell>
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-1 border-b border-border px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 border-b bg-chrome px-2 py-1">
         <IconButton
           label="Back"
-          onClick={goBack}
+          onClick={() => void goBack()}
           disabled={history.back.length === 0}
+          accelerator="Alt+ArrowLeft"
         >
           <ArrowLeft />
         </IconButton>
         <IconButton
           label="Forward"
-          onClick={goForward}
+          onClick={() => void goForward()}
           disabled={history.forward.length === 0}
+          accelerator="Alt+ArrowRight"
         >
           <ArrowRight />
         </IconButton>
         <IconButton
-          label="Parent directory"
+          label="Parent folder"
           onClick={() => void navigate(parentPath(path))}
           disabled={path === '/'}
+          accelerator="Alt+ArrowUp"
         >
           <ArrowUp />
         </IconButton>
-        <IconButton label="Refresh" onClick={() => void load(path)}>
+        <IconButton
+          label="Refresh"
+          onClick={() => void load(path)}
+          accelerator="F5"
+        >
           <RotateCw />
         </IconButton>
-        <IconButton label="Go to path" onClick={() => setGotoOpen(true)}>
-          <CornerUpRight />
-        </IconButton>
-        <div className="mx-1 h-5 w-px bg-border" />
+        <Separator orientation="vertical" />
         <IconButton label="New folder" onClick={() => setMkdirOpen(true)}>
           <FolderPlus />
         </IconButton>
@@ -456,84 +654,235 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
         </IconButton>
         <IconButton
           label="Download selected"
-          onClick={() => void startDownload()}
-          disabled={selectionCount === 0}
+          onClick={() => void startDownload(selectedNames)}
+          disabled={selectedNames.length === 0}
         >
-          <DownloadIcon />
+          <Download />
         </IconButton>
-        <div className="mx-1 h-5 w-px bg-border" />
-        <Input
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter…"
-          className="h-7 w-40"
-        />
-        <div className="ml-auto flex items-center gap-2">
-          {selectionCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {selectionCount} selected
-            </span>
+        <Separator orientation="vertical" />
+        <InputGroup className="w-48">
+          <InputGroupAddon>
+            <Search />
+          </InputGroupAddon>
+          <InputGroupInput
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setFilter('');
+            }}
+            placeholder="Filter this folder"
+            aria-label="Filter this folder"
+          />
+          {filter && (
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                size="icon-xs"
+                aria-label="Clear filter"
+                onClick={() => setFilter('')}
+              >
+                <X />
+              </InputGroupButton>
+            </InputGroupAddon>
           )}
-          <Badge variant="success-light" size="sm">
-            {displayName}
-          </Badge>
+        </InputGroup>
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          <span
+            className="truncate text-xs text-muted-foreground"
+            title={`${conn.remote.username}@${conn.remote.host}:${conn.remote.port}`}
+          >
+            {conn.remote.username}@{conn.remote.host}
+          </span>
+          <Badge variant="success-light">Connected</Badge>
           <IconButton
-            label="Open terminal for this host"
+            label="Open a terminal on this host"
             onClick={openTerminalHere}
           >
             <SquareTerminal />
           </IconButton>
-          <IconButton label="Close" onClick={() => closePane(paneId)}>
-            <X />
-          </IconButton>
         </div>
       </div>
 
-      {/* Breadcrumbs */}
-      <div className="flex items-center gap-0.5 overflow-x-auto border-b border-border px-2 py-1 text-xs">
-        {breadcrumbs(path).map((crumb, index, all) => (
-          <span key={crumb.path} className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => void navigate(crumb.path)}
-              className={cn(
-                'rounded-sm px-1 py-0.5 transition-colors hover:bg-accent',
-                index === all.length - 1
-                  ? 'font-medium text-foreground'
-                  : 'text-muted-foreground',
-              )}
-            >
-              {crumb.name}
-            </button>
-            {index < all.length - 1 && (
-              <span className="text-muted-foreground">/</span>
-            )}
+      {/* Location */}
+      <div className="flex shrink-0 items-center gap-1 border-b bg-chrome px-2 py-1">
+        <Breadcrumb className="min-w-0 flex-1">
+          <BreadcrumbList className="flex-nowrap gap-1 text-xs">
+            {[
+              ...crumbs.head,
+              ...(crumbs.hidden.length ? [null] : []),
+              ...crumbs.tail,
+            ].map((crumb, index, all) => {
+              const last = index === all.length - 1;
+              return (
+                <BreadcrumbItemGroup
+                  key={crumb?.path ?? 'overflow'}
+                  last={last}
+                >
+                  {crumb === null ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Show hidden path segments"
+                          />
+                        }
+                      >
+                        <BreadcrumbEllipsis />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        {crumbs.hidden.map((hidden) => (
+                          <DropdownMenuItem
+                            key={hidden.path}
+                            onClick={() => void navigate(hidden.path)}
+                          >
+                            {hidden.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : last ? (
+                    <BreadcrumbPage className="truncate" title={crumb.path}>
+                      {crumb.name}
+                    </BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink
+                      className="truncate"
+                      title={crumb.path}
+                      render={
+                        <button
+                          type="button"
+                          onClick={() => void navigate(crumb.path)}
+                        />
+                      }
+                    >
+                      {crumb.name}
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItemGroup>
+              );
+            })}
+          </BreadcrumbList>
+        </Breadcrumb>
+        <IconButton label="Go to path" onClick={() => setGotoOpen(true)}>
+          <CornerUpRight />
+        </IconButton>
+        {selectedNames.length > 0 && (
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+            {selectedNames.length} selected
           </span>
-        ))}
+        )}
       </div>
 
-      <FileTable
-        path={path}
-        entries={visible}
-        selection={selection}
-        sort={sort}
-        loading={listLoading}
-        error={listError}
-        onSort={onSort}
-        onSelect={select}
-        onOpen={openEntry}
-        onRetry={() => void load(path)}
-        onDownload={(entry) => {
-          setSelection(new Set([entry.name]));
-          void startDownload();
-        }}
-        onRename={(entry) => setRenameTarget(entry)}
-        onDelete={(entry) => setDeleteTarget(entry)}
-        onCopyPath={(entry) => {
-          void window.rtx.system.writeClipboard(joinPath(path, entry.name));
-          toast.success('Path copied.');
-        }}
-      />
+      {listError ? (
+        <Empty className="flex-1">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <FolderOpen />
+            </EmptyMedia>
+            <EmptyTitle>This folder could not be opened</EmptyTitle>
+            <EmptyDescription>{listError}</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent className="flex-row justify-center">
+            <Button variant="outline" onClick={() => void load(path)}>
+              <RotateCw data-icon="inline-start" />
+              Retry
+            </Button>
+            {path !== '/' && (
+              <Button
+                variant="outline"
+                onClick={() => void navigate(parentPath(path))}
+              >
+                <ArrowUp data-icon="inline-start" />
+                Parent folder
+              </Button>
+            )}
+          </EmptyContent>
+        </Empty>
+      ) : (
+        <ContextMenu>
+          <ContextMenuTrigger
+            render={<div className="flex min-h-0 flex-1 flex-col" />}
+          >
+            <FileTable
+              entries={visible}
+              selection={selection.selected}
+              sorting={sorting}
+              onSortingChange={setSorting}
+              loading={listLoading}
+              revealIndex={cursorIndex >= 0 ? cursorIndex : undefined}
+              emptyMessage={emptyMessage}
+              onRowMouseDown={onRowMouseDown}
+              onRowDoubleClick={openEntry}
+              onContextMenuTarget={onContextMenuTarget}
+              onKeyDown={onGridKeyDown}
+            />
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-56">
+            {target ? (
+              <>
+                {isDirectoryLike(target) && (
+                  <ContextMenuItem onClick={() => openEntry(target.name)}>
+                    <FolderOpen />
+                    Open
+                    <ContextMenuShortcut>Enter</ContextMenuShortcut>
+                  </ContextMenuItem>
+                )}
+                <ContextMenuItem
+                  onClick={() =>
+                    void startDownload(
+                      selection.selected.has(target.name)
+                        ? selectedNames
+                        : [target.name],
+                    )
+                  }
+                >
+                  <Download />
+                  {selectedNames.length > 1 &&
+                  selection.selected.has(target.name)
+                    ? `Download ${selectedNames.length} items…`
+                    : 'Download…'}
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => copyPath(target.name)}>
+                  <ClipboardCopy />
+                  Copy path
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => setRenameTarget(target)}>
+                  <Pencil />
+                  Rename…
+                  <ContextMenuShortcut>F2</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={() => setDeleteTarget(target)}
+                >
+                  <Trash2 />
+                  Delete…
+                  <ContextMenuShortcut>Del</ContextMenuShortcut>
+                </ContextMenuItem>
+              </>
+            ) : (
+              <>
+                <ContextMenuItem onClick={() => setMkdirOpen(true)}>
+                  <FolderPlus />
+                  New folder…
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => void startUpload()}>
+                  <Upload />
+                  Upload files…
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => void load(path)}>
+                  <RotateCw />
+                  Refresh
+                  <ContextMenuShortcut>F5</ContextMenuShortcut>
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
+      )}
 
       <TransferPanel
         transfers={transfers}
@@ -552,41 +901,48 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
         }
       />
 
-      <PromptDialog
+      <NameDialog
         open={mkdirOpen}
         title="New folder"
+        description={`Create a folder in ${path}`}
         label="Folder name"
-        initialValue=""
-        confirmLabel="Create"
-        onConfirm={(name) => void doMkdir(name)}
-        onOpenChange={setMkdirOpen}
+        initial=""
+        submitLabel="Create"
+        maxLength={255}
+        validate={(name) => entryNameProblem(name, byName)}
+        onSubmit={(name) => void doMkdir(name)}
+        onClose={() => setMkdirOpen(false)}
       />
-      <PromptDialog
+      <NameDialog
         open={renameTarget !== null}
         title="Rename"
+        description={renameTarget ? joinPath(path, renameTarget.name) : ''}
         label="New name"
-        initialValue={renameTarget?.name ?? ''}
-        confirmLabel="Rename"
-        onConfirm={(name) => void doRename(name)}
-        onOpenChange={(open) => !open && setRenameTarget(null)}
+        initial={renameTarget?.name ?? ''}
+        submitLabel="Rename"
+        maxLength={255}
+        validate={(name) => entryNameProblem(name, byName, renameTarget?.name)}
+        onSubmit={(name) => void doRename(name)}
+        onClose={() => setRenameTarget(null)}
       />
-      <PromptDialog
+      <NameDialog
         open={gotoOpen}
         title="Go to path"
-        label="Absolute path"
+        description="An absolute path, or one relative to the current folder."
+        label="Path"
         placeholder="/var/log"
-        initialValue={path}
-        confirmLabel="Go"
-        onConfirm={(target) =>
-          void navigate(
-            target.startsWith('/') ? target : joinPath(path, target),
-          )
+        initial={path}
+        submitLabel="Go"
+        maxLength={4096}
+        onSubmit={(value) =>
+          void navigate(value.startsWith('/') ? value : joinPath(path, value))
         }
-        onOpenChange={setGotoOpen}
+        onClose={() => setGotoOpen(false)}
       />
       <ConflictDialog
         open={pending !== null}
         count={pending?.sources.length ?? 0}
+        direction={pending?.direction ?? 'upload'}
         onChoose={(resolution) => void runTransfer(resolution)}
         onOpenChange={(open) => !open && setPending(null)}
       />
@@ -598,16 +954,24 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {deleteTarget?.type === 'directory' ? 'folder' : 'file'}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget &&
-                `This permanently deletes ${joinPath(path, deleteTarget.name)}`}
+              Delete{' '}
               {deleteTarget?.type === 'directory'
-                ? ' and everything inside it. This cannot be undone.'
-                : '. This cannot be undone.'}
+                ? 'this folder and everything in it'
+                : deleteTarget?.type === 'symlink'
+                  ? 'this link'
+                  : 'this file'}
+              ?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="break-all">
+              {deleteTarget && joinPath(path, deleteTarget.name)}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {deleteTarget?.type === 'symlink'
+              ? 'Only the link is removed; what it points to is not touched. '
+              : ''}
+            This cannot be undone.
+          </p>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -623,39 +987,23 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
   );
 }
 
-function PaneShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-workspace">{children}</div>
-  );
-}
-
-function IconButton({
-  label,
-  onClick,
-  disabled,
+function BreadcrumbItemGroup({
+  last,
   children,
 }: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
+  last: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onClick}
-            disabled={disabled}
-            aria-label={label}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+    <>
+      <BreadcrumbItem className="min-w-0">{children}</BreadcrumbItem>
+      {!last && <BreadcrumbSeparator />}
+    </>
+  );
+}
+
+function PaneShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-workspace">{children}</div>
   );
 }

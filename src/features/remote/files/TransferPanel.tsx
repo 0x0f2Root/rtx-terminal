@@ -1,24 +1,22 @@
 import { ArrowDownToLine, ArrowUpFromLine, RotateCw, X } from 'lucide-react';
-import { Badge } from '@/components/reui/badge';
+import { IconButton } from '@/components/icon-button';
+import { Badge, type BadgeProps } from '@/components/reui/badge';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from 'cn';
 import type { TransferProgress, TransferStatus } from '@/shared/remote';
 import { formatBytes, formatBytesPerSecond } from '../format';
 
-const STATUS_VARIANT: Record<
+const STATUS: Record<
   TransferStatus,
-  | 'primary-light'
-  | 'success-light'
-  | 'destructive-light'
-  | 'warning-light'
-  | 'secondary'
+  { label: string; variant: BadgeProps['variant'] }
 > = {
-  queued: 'secondary',
-  transferring: 'primary-light',
-  completed: 'success-light',
-  failed: 'destructive-light',
-  cancelled: 'warning-light',
+  queued: { label: 'Queued', variant: 'secondary' },
+  transferring: { label: 'Transferring', variant: 'primary-light' },
+  completed: { label: 'Done', variant: 'success-light' },
+  skipped: { label: 'Skipped', variant: 'secondary' },
+  cancelled: { label: 'Cancelled', variant: 'warning-light' },
+  failed: { label: 'Failed', variant: 'destructive-light' },
 };
 
 function percent(transfer: TransferProgress): number | null {
@@ -39,100 +37,92 @@ function TransferRow({
   onRetry: (id: string) => void;
 }) {
   const pct = percent(transfer);
+  const status = STATUS[transfer.status];
   const active =
     transfer.status === 'transferring' || transfer.status === 'queued';
+  const Direction =
+    transfer.direction === 'upload' ? ArrowUpFromLine : ArrowDownToLine;
   return (
-    <div className="flex flex-col gap-1 px-3 py-2">
+    <div className="flex flex-col gap-1.5 px-3 py-2">
       <div className="flex items-center gap-2">
-        {transfer.direction === 'upload' ? (
-          <ArrowUpFromLine className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ArrowDownToLine className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
+        <Direction
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-label={transfer.direction === 'upload' ? 'Upload' : 'Download'}
+        />
         <span
           className="min-w-0 flex-1 truncate text-sm"
-          title={transfer.destination}
+          title={`${transfer.source} → ${transfer.destination}`}
         >
           {transfer.name}
         </span>
-        <Badge variant={STATUS_VARIANT[transfer.status]} size="sm">
-          {transfer.status}
-        </Badge>
+        <Badge variant={status.variant}>{status.label}</Badge>
         {active ? (
-          <Button
-            size="sm"
-            variant="ghost"
+          <IconButton
+            label="Cancel transfer"
             onClick={() => onCancel(transfer.id)}
-            aria-label="Cancel transfer"
           >
             <X />
-          </Button>
+          </IconButton>
         ) : transfer.status === 'failed' || transfer.status === 'cancelled' ? (
-          <Button
-            size="sm"
-            variant="ghost"
+          <IconButton
+            label="Retry transfer"
             onClick={() => onRetry(transfer.id)}
-            aria-label="Retry transfer"
           >
             <RotateCw />
-          </Button>
+          </IconButton>
         ) : null}
       </div>
       {transfer.status === 'transferring' && (
-        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-[width] duration-200"
-            style={{ width: pct === null ? '100%' : `${pct}%` }}
-          />
-        </div>
+        <Progress
+          value={pct}
+          aria-label={`${transfer.direction === 'upload' ? 'Uploading' : 'Downloading'} ${transfer.name}`}
+        />
       )}
-      <div className="flex items-center justify-between text-xs tabular-nums text-muted-foreground">
-        <span>
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground tabular-nums">
+        <span className="shrink-0">
           {formatBytes(transfer.transferred)}
-          {transfer.total !== null ? ` / ${formatBytes(transfer.total)}` : ''}
-          {pct !== null ? ` · ${pct}%` : ''}
+          {transfer.total !== null ? ` of ${formatBytes(transfer.total)}` : ''}
+          {transfer.status === 'transferring' && pct !== null
+            ? ` · ${pct}%`
+            : ''}
         </span>
-        <span>
-          {transfer.status === 'transferring' &&
-          transfer.bytesPerSecond !== null
-            ? formatBytesPerSecond(transfer.bytesPerSecond)
-            : transfer.error
-              ? transfer.error
-              : ''}
-        </span>
+        {transfer.status === 'failed' && transfer.error ? (
+          <span className="truncate text-destructive" title={transfer.error}>
+            {transfer.error}
+          </span>
+        ) : transfer.status === 'transferring' &&
+          transfer.bytesPerSecond !== null ? (
+          <span>{formatBytesPerSecond(transfer.bytesPerSecond)}</span>
+        ) : null}
       </div>
     </div>
   );
 }
 
+/** The transfer queue for one file view, docked under the listing while it has entries. */
 export function TransferPanel({
   transfers,
   onCancel,
   onRetry,
   onClear,
-  className,
 }: {
   transfers: TransferProgress[];
   onCancel: (id: string) => void;
   onRetry: (id: string) => void;
   onClear: () => void;
-  className?: string;
 }) {
   if (transfers.length === 0) return null;
   const active = transfers.filter(
     (t) => t.status === 'transferring' || t.status === 'queued',
   ).length;
   return (
-    <div
-      className={cn('flex max-h-56 flex-col border-t border-border', className)}
+    <section
+      aria-label="Transfers"
+      className="flex max-h-56 shrink-0 flex-col border-t bg-chrome"
     >
-      <div className="flex items-center gap-2 px-3 py-1.5">
+      <div className="flex items-center gap-2 px-3 py-1">
         <span className="text-xs font-medium">Transfers</span>
-        {active > 0 && (
-          <Badge variant="primary-light" size="sm">
-            {active} active
-          </Badge>
-        )}
+        {active > 0 && <Badge variant="primary-light">{active} active</Badge>}
         <Button
           size="sm"
           variant="ghost"
@@ -144,7 +134,7 @@ export function TransferPanel({
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="divide-y divide-border/50">
+        <div className="flex flex-col divide-y divide-border/50">
           {transfers.map((transfer) => (
             <TransferRow
               key={transfer.id}
@@ -155,6 +145,6 @@ export function TransferPanel({
           ))}
         </div>
       </ScrollArea>
-    </div>
+    </section>
   );
 }

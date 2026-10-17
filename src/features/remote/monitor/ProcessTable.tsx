@@ -1,148 +1,172 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { cn } from 'cn';
+import {
+  type ColumnDef,
+  type SortingState,
+  useTable,
+} from '@tanstack/react-table';
+import {
+  DataGrid,
+  dataGridFeatures,
+  type DataGridFeatures,
+} from '@/components/reui/data-grid/data-grid';
+import { DataGridColumnHeader } from '@/components/reui/data-grid/data-grid-column-header';
+import { DataGridScrollArea } from '@/components/reui/data-grid/data-grid-scroll-area';
+import { DataGridTableVirtual } from '@/components/reui/data-grid/data-grid-table-virtual';
 import type { ProcessMetric } from '@/shared/remote';
 import { formatBytes, formatDuration } from '../format';
 
-type Key = 'pid' | 'name' | 'user' | 'cpu' | 'memoryPercent' | 'rss';
+const NUMERIC = {
+  headerClassName: 'text-end [&>div]:justify-end',
+  cellClassName: 'text-end tabular-nums',
+};
 
-/** How many rows to render at once; sorting makes the top of the list the interesting part, so a
- *  bounded render keeps a multi-thousand-process host responsive without a virtualization library. */
-const MAX_ROWS = 250;
+const columns: ColumnDef<DataGridFeatures, ProcessMetric>[] = [
+  {
+    id: 'pid',
+    accessorKey: 'pid',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="PID" column={column} />
+    ),
+    size: 80,
+    meta: {
+      ...NUMERIC,
+      cellClassName: `${NUMERIC.cellClassName} text-muted-foreground`,
+    },
+  },
+  {
+    id: 'user',
+    accessorKey: 'user',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="User" column={column} />
+    ),
+    size: 104,
+    meta: { cellClassName: 'text-muted-foreground' },
+  },
+  {
+    // ps reports CPU time over the process lifetime, so this is an average, not current load.
+    id: 'cpu',
+    accessorKey: 'cpu',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="Avg CPU %" column={column} />
+    ),
+    cell: ({ row }) => row.original.cpu.toFixed(1),
+    size: 104,
+    sortDescFirst: true,
+    meta: NUMERIC,
+  },
+  {
+    id: 'memoryPercent',
+    accessorKey: 'memoryPercent',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="Mem %" column={column} />
+    ),
+    cell: ({ row }) => row.original.memoryPercent.toFixed(1),
+    size: 88,
+    sortDescFirst: true,
+    meta: NUMERIC,
+  },
+  {
+    id: 'rss',
+    accessorKey: 'rss',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="Resident" column={column} />
+    ),
+    cell: ({ row }) => formatBytes(row.original.rss),
+    size: 104,
+    sortDescFirst: true,
+    meta: {
+      ...NUMERIC,
+      cellClassName: `${NUMERIC.cellClassName} text-muted-foreground`,
+    },
+  },
+  {
+    id: 'state',
+    accessorKey: 'state',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="State" column={column} />
+    ),
+    size: 72,
+    meta: { cellClassName: 'font-mono text-xs text-muted-foreground' },
+  },
+  {
+    id: 'elapsedSeconds',
+    accessorKey: 'elapsedSeconds',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="Running" column={column} />
+    ),
+    cell: ({ row }) => formatDuration(row.original.elapsedSeconds),
+    size: 96,
+    sortDescFirst: true,
+    meta: {
+      ...NUMERIC,
+      cellClassName: `${NUMERIC.cellClassName} text-muted-foreground`,
+    },
+  },
+  {
+    id: 'name',
+    accessorKey: 'name',
+    header: ({ column }) => (
+      <DataGridColumnHeader title="Command" column={column} />
+    ),
+    cell: ({ row }) => (
+      <span className="truncate" title={row.original.name}>
+        {row.original.name}
+      </span>
+    ),
+    size: 240,
+    minSize: 160,
+    meta: { fillWidth: true },
+  },
+];
 
-export function ProcessTable({ processes }: { processes: ProcessMetric[] }) {
-  const [sortKey, setSortKey] = useState<Key>('cpu');
-  const [dir, setDir] = useState<'asc' | 'desc'>('desc');
-  const [filter, setFilter] = useState('');
+/** The remote process list as a virtualized ReUI data-grid; every row renders on demand. */
+export function ProcessTable({
+  processes,
+  selectedPid,
+  onSelect,
+  emptyMessage,
+}: {
+  /** Already filtered by the caller. */
+  processes: ProcessMetric[];
+  selectedPid: number | null;
+  onSelect: (pid: number) => void;
+  emptyMessage: React.ReactNode;
+}) {
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: 'cpu', desc: true },
+  ]);
+  const rowSelection = useMemo(() => {
+    const state: Record<string, true> = {};
+    if (selectedPid !== null) state[String(selectedPid)] = true;
+    return state;
+  }, [selectedPid]);
 
-  const rows = useMemo(() => {
-    const term = filter.trim().toLowerCase();
-    const filtered = term
-      ? processes.filter(
-          (p) =>
-            p.name.toLowerCase().includes(term) ||
-            p.user.toLowerCase().includes(term) ||
-            String(p.pid).includes(term),
-        )
-      : processes;
-    const factor = dir === 'asc' ? 1 : -1;
-    const sorted = [...filtered].sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      const delta =
-        typeof av === 'number' && typeof bv === 'number'
-          ? av - bv
-          : String(av).localeCompare(String(bv));
-      return delta * factor;
-    });
-    return sorted.slice(0, MAX_ROWS);
-  }, [processes, sortKey, dir, filter]);
-
-  const onSort = (key: Key) => {
-    if (key === sortKey) setDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else {
-      setSortKey(key);
-      setDir(key === 'name' || key === 'user' ? 'asc' : 'desc');
-    }
-  };
-
-  const Head = ({
-    label,
-    column,
-    className,
-  }: {
-    label: string;
-    column: Key;
-    className?: string;
-  }) => (
-    <th className={cn('px-2 py-1.5 font-medium', className)}>
-      <button
-        type="button"
-        onClick={() => onSort(column)}
-        className="inline-flex items-center gap-1 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        {label}
-        {sortKey === column &&
-          (dir === 'asc' ? (
-            <ArrowUp className="size-3" />
-          ) : (
-            <ArrowDown className="size-3" />
-          ))}
-      </button>
-    </th>
-  );
+  const table = useTable({
+    features: dataGridFeatures,
+    columns,
+    data: processes,
+    getRowId: (process: ProcessMetric) => String(process.pid),
+    manualPagination: true,
+    enableRowSelection: true,
+    state: { sorting, rowSelection },
+    onSortingChange: setSorting,
+  });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <Input
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter processes…"
-          className="h-7 w-56"
-        />
-        <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-          {processes.length} processes
-          {rows.length < processes.length ? ` · showing ${rows.length}` : ''}
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-card text-xs">
-            <tr className="border-b border-border">
-              <Head label="PID" column="pid" className="w-16 text-right" />
-              <Head label="User" column="user" className="w-24 text-left" />
-              <Head label="CPU %" column="cpu" className="w-20 text-right" />
-              <Head
-                label="Mem %"
-                column="memoryPercent"
-                className="w-20 text-right"
-              />
-              <Head label="RSS" column="rss" className="w-24 text-right" />
-              <th className="w-12 px-2 py-1.5 text-left font-medium text-muted-foreground">
-                St
-              </th>
-              <Head label="Command" column="name" className="text-left" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => (
-              <tr
-                key={p.pid}
-                className="border-b border-border/40 hover:bg-accent"
-              >
-                <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
-                  {p.pid}
-                </td>
-                <td className="truncate px-2 py-1 text-muted-foreground">
-                  {p.user}
-                </td>
-                <td className="px-2 py-1 text-right tabular-nums">
-                  {p.cpu.toFixed(1)}
-                </td>
-                <td className="px-2 py-1 text-right tabular-nums">
-                  {p.memoryPercent.toFixed(1)}
-                </td>
-                <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
-                  {formatBytes(p.rss)}
-                </td>
-                <td className="px-2 py-1 font-mono text-xs text-muted-foreground">
-                  {p.state}
-                </td>
-                <td className="max-w-0 truncate px-2 py-1" title={p.name}>
-                  {p.name}
-                  {p.elapsedSeconds !== null && (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {formatDuration(p.elapsedSeconds)}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <DataGrid
+      table={table}
+      recordCount={processes.length}
+      emptyMessage={emptyMessage}
+      onRowClick={(process) => onSelect(process.pid)}
+      tableLayout={{ dense: true, headerSticky: true, columnsResizable: true }}
+      tableClassNames={{
+        headerSticky: 'sticky top-0 z-10 bg-muted/90 backdrop-blur-xs',
+        bodyRow: 'cursor-default',
+      }}
+    >
+      <DataGridScrollArea className="h-96">
+        <DataGridTableVirtual estimateSize={33} />
+      </DataGridScrollArea>
+    </DataGrid>
   );
 }

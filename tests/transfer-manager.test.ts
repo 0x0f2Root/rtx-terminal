@@ -105,7 +105,7 @@ describe('TransferManager uploads', () => {
       size: 11,
       conflict: 'skip',
     });
-    await waitForStatus(skip, 'cancelled');
+    await waitForStatus(skip, 'skipped');
     expect(fs.readFileContents('/home/tester/clash.txt').toString()).toBe(
       'original',
     );

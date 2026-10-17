@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  CircleAlert,
   Cpu,
   HardDrive,
+  ListTree,
   MemoryStick,
   Network,
+  Pause,
+  Play,
+  RotateCw,
+  Search,
   SquareTerminal,
   Unplug,
   X,
 } from 'lucide-react';
+import { IconButton } from '@/components/icon-button';
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from '@/components/reui/alert';
 import { Badge } from '@/components/reui/badge';
 import { Button } from '@/components/ui/button';
+import type { ChartConfig } from '@/components/ui/chart';
 import {
   Empty,
   EmptyContent,
@@ -20,24 +34,27 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { cn } from 'cn';
-import type { ChartConfig } from '@/components/ui/chart';
+import { Switch } from '@/components/ui/switch';
 import type {
+  FilesystemMetric,
   MetricsSample,
   MonitorStatus,
-  NetworkInterfaceMetric,
 } from '@/shared/remote';
 import { MONITOR_INTERVAL } from '@/shared/remote';
 import type { RemoteEndpoint, SshConnectState } from '@/shared/api';
@@ -47,16 +64,30 @@ import { openTab, useWorkspace } from '@/state/workspace';
 import { openRemote } from '../remote-open';
 import {
   formatBytes,
+  formatBytesCompact,
   formatBytesPerSecond,
   formatClock,
   formatDuration,
   formatPercent,
 } from '../format';
-import { AreaTrend, DualLineTrend, type ChartPoint } from './monitor-charts';
-import { MetricCard, Panel, PanelHeader } from './monitor-ui';
+import { AreaTrend, LineTrend, Sparkline } from './monitor-charts';
+import {
+  cpuPoints,
+  defaultInterface,
+  diskIoPoints,
+  externalNetworkPoints,
+  externalThroughput,
+  isStale,
+  memoryPoints,
+  networkPoints,
+  staleAfterMs,
+  windowSamples,
+  withGaps,
+} from './monitor-data';
+import { MetricFrame, StatTile } from './monitor-ui';
 import { ProcessTable } from './ProcessTable';
 
-/** History kept in memory while the monitor is open (30 min at the 2 s default) — a bounded ring. */
+/** History kept while the monitor is open: a bounded ring (30 min at the 2 s default). */
 const MAX_SAMPLES = 900;
 
 const WINDOWS = [
@@ -66,26 +97,34 @@ const WINDOWS = [
 ] as const;
 
 const INTERVALS = [
-  { label: '1s', ms: 1000 },
-  { label: '2s', ms: 2000 },
-  { label: '5s', ms: 5000 },
-  { label: '10s', ms: 10000 },
+  { label: 'Every 1s', ms: 1000 },
+  { label: 'Every 2s', ms: 2000 },
+  { label: 'Every 5s', ms: 5000 },
+  { label: 'Every 10s', ms: 10_000 },
 ] as const;
 
+// Series take the --chart-* slots in fixed order: every chart's first series is --chart-1.
 const cpuConfig: ChartConfig = {
-  cpu: { label: 'CPU %', color: 'var(--chart-1)' },
+  cpu: { label: 'CPU', color: 'var(--chart-1)' },
 };
 const memConfig: ChartConfig = {
-  mem: { label: 'Memory %', color: 'var(--chart-2)' },
+  mem: { label: 'Memory', color: 'var(--chart-1)' },
+};
+const netTotalConfig: ChartConfig = {
+  net: { label: 'Network', color: 'var(--chart-1)' },
 };
 const netConfig: ChartConfig = {
   rx: { label: 'Receive', color: 'var(--chart-1)' },
-  tx: { label: 'Transmit', color: 'var(--chart-4)' },
+  tx: { label: 'Transmit', color: 'var(--chart-2)' },
 };
 const ioConfig: ChartConfig = {
-  read: { label: 'Read', color: 'var(--chart-3)' },
-  write: { label: 'Write', color: 'var(--chart-5)' },
+  read: { label: 'Read', color: 'var(--chart-1)' },
+  write: { label: 'Write', color: 'var(--chart-2)' },
 };
+
+const percentAxis = (value: number) => `${value}%`;
+const percentValue = (value: number) => formatPercent(value, 1);
+const rateValue = (value: number) => formatBytesPerSecond(value);
 
 type ConnState =
   | { status: 'connecting'; progress: SshConnectState | null }
@@ -97,11 +136,15 @@ type ConnState =
     }
   | { status: 'error'; error: string };
 
-function pickDefaultInterface(
-  interfaces: NetworkInterfaceMetric[],
-): string | null {
-  const real = interfaces.find((i) => i.name !== 'lo');
-  return (real ?? interfaces[0])?.name ?? null;
+/** Re-renders every second while `active`, for the stale-sample check. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
 }
 
 export function MonitorPane({
@@ -118,6 +161,8 @@ export function MonitorPane({
     status: 'connecting',
     progress: null,
   });
+  /** Bumped by Reconnect to open a fresh monitor for the same host. */
+  const [attempt, setAttempt] = useState(0);
   const connectionIdRef = useRef<string | null>(null);
   const [status, setStatus] = useState<MonitorStatus>('connecting');
   const [statusDetail, setStatusDetail] = useState<string | undefined>();
@@ -126,8 +171,13 @@ export function MonitorPane({
     MONITOR_INTERVAL.default,
   );
   const [windowMs, setWindowMs] = useState<number>(WINDOWS[1].ms);
+  const [userPaused, setUserPaused] = useState(false);
   const [iface, setIface] = useState<string | null>(null);
   const [device, setDevice] = useState<string | null>(null);
+  const [mount, setMount] = useState<string | null>(null);
+  const [showVirtual, setShowVirtual] = useState(false);
+  const [processFilter, setProcessFilter] = useState('');
+  const [selectedPid, setSelectedPid] = useState<number | null>(null);
 
   const latest = history.length > 0 ? history[history.length - 1] : null;
 
@@ -139,9 +189,11 @@ export function MonitorPane({
       return;
     }
     let disposed = false;
+    setConn({ status: 'connecting', progress: null });
+    setStatus('connecting');
     void (async () => {
       const result = await openRemote('monitor', hostId, {
-        intervalMs: MONITOR_INTERVAL.default,
+        intervalMs,
         onProgress: (progress) =>
           !disposed && setConn({ status: 'connecting', progress }),
         isCancelled: () => disposed,
@@ -163,6 +215,7 @@ export function MonitorPane({
         label: result.label,
       });
       setStatus('sampling');
+      setStatusDetail(undefined);
     })();
     return () => {
       disposed = true;
@@ -170,31 +223,37 @@ export function MonitorPane({
       if (id) void window.rtx.monitor.stop(id);
       connectionIdRef.current = null;
     };
-  }, [hostId]);
+    // intervalMs is read only to seed a new poller; later changes go through setInterval, so it is
+    // deliberately not a dependency (changing it must not reconnect).
+  }, [hostId, attempt]);
 
-  useEffect(() => {
-    const off = window.rtx.monitor.onEvent((event) => {
-      if (event.connectionId !== connectionIdRef.current) return;
-      if (event.kind === 'sample') {
-        setHistory((prev) => {
-          const next = [...prev, event.sample];
-          return next.length > MAX_SAMPLES ? next.slice(-MAX_SAMPLES) : next;
-        });
-        setStatus('sampling');
-      } else {
-        setStatus(event.status);
-        setStatusDetail(event.detail);
-      }
-    });
-    return off;
-  }, []);
+  useEffect(
+    () =>
+      window.rtx.monitor.onEvent((event) => {
+        if (event.connectionId !== connectionIdRef.current) return;
+        if (event.kind === 'sample') {
+          setHistory((prev) => {
+            const next = [...prev, event.sample];
+            return next.length > MAX_SAMPLES ? next.slice(-MAX_SAMPLES) : next;
+          });
+          setStatus('sampling');
+          setStatusDetail(undefined);
+        } else {
+          setStatus(event.status);
+          setStatusDetail(event.detail);
+          // A dropped transport ends this monitor; Reconnect opens a new one.
+          if (event.status === 'disconnected') connectionIdRef.current = null;
+        }
+      }),
+    [],
+  );
 
-  // Pause sampling while the tab is hidden; resume when shown again.
+  // Sampling runs only while the tab is visible and the user has not paused it.
+  const active = tabActive && !userPaused;
   useEffect(() => {
     const id = connectionIdRef.current;
-    if (conn.status !== 'open' || !id) return;
-    window.rtx.monitor.setActive(id, tabActive);
-  }, [tabActive, conn.status]);
+    if (conn.status === 'open' && id) window.rtx.monitor.setActive(id, active);
+  }, [active, conn.status]);
 
   const changeInterval = useCallback((ms: number) => {
     setIntervalMs(ms);
@@ -202,80 +261,53 @@ export function MonitorPane({
     if (id) window.rtx.monitor.setInterval(id, ms);
   }, []);
 
-  // Keep interface/device selections valid as samples arrive.
+  // Keep the interface, device and filesystem selections valid as samples arrive.
   useEffect(() => {
     if (!latest) return;
     if (latest.network.state === 'ok') {
       const names = latest.network.value.map((n) => n.name);
       if (!iface || !names.includes(iface))
-        setIface(pickDefaultInterface(latest.network.value));
+        setIface(defaultInterface(latest.network.value));
     }
     if (latest.diskIo.state === 'ok' && latest.diskIo.value.length > 0) {
       const names = latest.diskIo.value.map((d) => d.device);
       if (!device || !names.includes(device)) setDevice(names[0]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latest]);
+  }, [latest, iface, device]);
+
+  const now = useNow(conn.status === 'open' && status === 'sampling' && active);
+  const stale =
+    status === 'sampling' &&
+    active &&
+    isStale(latest?.timestamp ?? null, now, intervalMs);
 
   // --- chart data ------------------------------------------------------------
 
-  const windowed = useMemo(() => {
-    if (history.length === 0) return [];
-    const cutoff = history[history.length - 1].timestamp - windowMs;
-    return history.filter((s) => s.timestamp >= cutoff);
-  }, [history, windowMs]);
-
-  const cpuData = useMemo<ChartPoint[]>(
-    () =>
-      windowed.map((s) => ({
-        t: s.timestamp,
-        cpu:
-          s.cpu.state === 'ok'
-            ? Number(s.cpu.value.utilization.toFixed(1))
-            : null,
-      })),
-    [windowed],
+  // A gap longer than the stale threshold is a hole in the data, drawn as a break in the line.
+  const maxGap = staleAfterMs(intervalMs);
+  const windowed = useMemo(
+    () => windowSamples(history, windowMs),
+    [history, windowMs],
   );
-  const memData = useMemo<ChartPoint[]>(
-    () =>
-      windowed.map((s) => ({
-        t: s.timestamp,
-        mem:
-          s.memory.state === 'ok'
-            ? Number(s.memory.value.utilization.toFixed(1))
-            : null,
-      })),
-    [windowed],
+  const cpuData = useMemo(
+    () => withGaps(cpuPoints(windowed), maxGap),
+    [windowed, maxGap],
   );
-  const netData = useMemo<ChartPoint[]>(
-    () =>
-      windowed.map((s) => {
-        const found =
-          s.network.state === 'ok'
-            ? s.network.value.find((n) => n.name === iface)
-            : undefined;
-        return {
-          t: s.timestamp,
-          rx: found ? Math.round(found.receiveBytesPerSecond) : null,
-          tx: found ? Math.round(found.transmitBytesPerSecond) : null,
-        };
-      }),
-    [windowed, iface],
+  const memData = useMemo(
+    () => withGaps(memoryPoints(windowed), maxGap),
+    [windowed, maxGap],
   );
-  const ioData = useMemo<ChartPoint[]>(
-    () =>
-      windowed.map((s) => {
-        const found =
-          s.diskIo.state === 'ok'
-            ? s.diskIo.value.find((d) => d.device === device)
-            : undefined;
-        return {
-          t: s.timestamp,
-          read: found ? Math.round(found.readBytesPerSecond) : null,
-          write: found ? Math.round(found.writeBytesPerSecond) : null,
-        };
-      }),
-    [windowed, device],
+  const netTotalData = useMemo(
+    () => withGaps(externalNetworkPoints(windowed), maxGap),
+    [windowed, maxGap],
+  );
+  const netData = useMemo(
+    () => withGaps(networkPoints(windowed, iface), maxGap),
+    [windowed, iface, maxGap],
+  );
+  const ioData = useMemo(
+    () => withGaps(diskIoPoints(windowed, device), maxGap),
+    [windowed, device, maxGap],
   );
 
   const openTerminalHere = useCallback(() => {
@@ -292,13 +324,11 @@ export function MonitorPane({
   if (conn.status === 'connecting')
     return (
       <Shell>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner />
-            {conn.progress === 'authenticating'
-              ? 'Authenticating…'
-              : `Connecting to ${displayName}…`}
-          </div>
+        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Spinner />
+          {conn.progress === 'authenticating'
+            ? 'Authenticating…'
+            : `Connecting to ${displayName}…`}
         </div>
       </Shell>
     );
@@ -314,12 +344,12 @@ export function MonitorPane({
             <EmptyTitle>Could not start monitoring</EmptyTitle>
             <EmptyDescription>{conn.error}</EmptyDescription>
           </EmptyHeader>
-          <EmptyContent className="items-center">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => closePane(paneId)}
-            >
+          <EmptyContent className="flex-row justify-center">
+            <Button onClick={() => setAttempt((n) => n + 1)}>
+              <RotateCw data-icon="inline-start" />
+              Try again
+            </Button>
+            <Button variant="outline" onClick={() => closePane(paneId)}>
               Close
             </Button>
           </EmptyContent>
@@ -327,51 +357,83 @@ export function MonitorPane({
       </Shell>
     );
 
+  // --- derived view state ----------------------------------------------------
+
   const net = latest?.network.state === 'ok' ? latest.network.value : [];
   const disks = latest?.diskIo.state === 'ok' ? latest.diskIo.value : [];
-  const rootFs =
-    latest?.filesystems.state === 'ok'
-      ? (latest.filesystems.value.find((f) => f.mountpoint === '/') ??
-        latest.filesystems.value[0])
-      : undefined;
+  const filesystems =
+    latest?.filesystems.state === 'ok' ? latest.filesystems.value : [];
+  const physical = filesystems.filter((f) => !f.pseudo);
+  const shownFilesystems = showVirtual ? filesystems : physical;
+  const chosenFs: FilesystemMetric | undefined =
+    filesystems.find((f) => f.mountpoint === mount) ??
+    physical.find((f) => f.mountpoint === '/') ??
+    physical[0] ??
+    filesystems[0];
   const selectedIface = net.find((n) => n.name === iface);
-  const totalRate = net.reduce(
-    (sum, n) => sum + n.receiveBytesPerSecond + n.transmitBytesPerSecond,
-    0,
-  );
+  const cpu = latest?.cpu.state === 'ok' ? latest.cpu.value : null;
+  const memory = latest?.memory.state === 'ok' ? latest.memory.value : null;
+  const processes =
+    latest?.processes.state === 'ok' ? latest.processes.value : [];
+  const term = processFilter.trim().toLowerCase();
+  const shownProcesses = term
+    ? processes.filter(
+        (p) =>
+          p.name.toLowerCase().includes(term) ||
+          p.user.toLowerCase().includes(term) ||
+          String(p.pid) === term,
+      )
+    : processes;
+  const selectedProcess = processes.find((p) => p.pid === selectedPid);
+  const totalNet = externalThroughput(net);
+  const disconnected = status === 'disconnected';
 
   return (
     <Shell>
       {/* Host header */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <Activity className="size-4 text-primary" />
-        <span className="text-sm font-medium tracking-tight">
-          {displayName}
-        </span>
-        <StatusBadge status={status} detail={statusDetail} />
-        {latest?.facts.os && (
-          <span className="text-xs text-muted-foreground">
-            {latest.facts.os}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b bg-chrome px-3 py-1.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Activity className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm font-medium">{displayName}</span>
+          <StatusBadge
+            status={status}
+            stale={stale}
+            paused={userPaused}
+            detail={statusDetail}
+          />
+        </div>
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <span
+            className="truncate"
+            title={`${conn.remote.username}@${conn.remote.host}:${conn.remote.port}`}
+          >
+            {conn.remote.username}@{conn.remote.host}
           </span>
-        )}
-        {latest?.facts.uptimeSeconds !== null &&
-          latest?.facts.uptimeSeconds !== undefined && (
-            <span className="text-xs text-muted-foreground">
-              up {formatDuration(latest.facts.uptimeSeconds)}
+          {latest?.facts.os && (
+            <span className="hidden truncate lg:inline">
+              · {latest.facts.os}
             </span>
           )}
+          {latest?.facts.uptimeSeconds != null && (
+            <span className="hidden truncate lg:inline">
+              · up {formatDuration(latest.facts.uptimeSeconds)}
+            </span>
+          )}
+        </div>
         <div className="ml-auto flex items-center gap-2">
           {latest && (
             <span className="text-xs text-muted-foreground tabular-nums">
-              {formatClock(latest.timestamp)}
+              Updated {formatClock(latest.timestamp)}
             </span>
           )}
           <Select
             value={String(intervalMs)}
-            onValueChange={(v) => changeInterval(Number(v))}
+            onValueChange={(value) => changeInterval(Number(value))}
           >
-            <SelectTrigger size="sm" className="w-20">
-              <SelectValue />
+            <SelectTrigger size="sm" aria-label="Sampling interval">
+              <SelectValue>
+                {INTERVALS.find((i) => i.ms === intervalMs)?.label}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {INTERVALS.map((i) => (
@@ -383,10 +445,12 @@ export function MonitorPane({
           </Select>
           <Select
             value={String(windowMs)}
-            onValueChange={(v) => setWindowMs(Number(v))}
+            onValueChange={(value) => setWindowMs(Number(value))}
           >
-            <SelectTrigger size="sm" className="w-28">
-              <SelectValue />
+            <SelectTrigger size="sm" aria-label="History window">
+              <SelectValue>
+                {WINDOWS.find((w) => w.ms === windowMs)?.label}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {WINDOWS.map((w) => (
@@ -397,332 +461,522 @@ export function MonitorPane({
             </SelectContent>
           </Select>
           <IconButton
-            label="Open terminal for this host"
+            label={userPaused ? 'Resume sampling' : 'Pause sampling'}
+            onClick={() => setUserPaused((paused) => !paused)}
+            disabled={disconnected}
+          >
+            {userPaused ? <Play /> : <Pause />}
+          </IconButton>
+          <IconButton
+            label="Open a terminal on this host"
             onClick={openTerminalHere}
           >
             <SquareTerminal />
           </IconButton>
-          <IconButton label="Close" onClick={() => closePane(paneId)}>
-            <X />
-          </IconButton>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-3">
-        <div className="flex flex-col gap-3">
-          {/* Overview cards */}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-            <MetricCard
-              title="CPU"
-              icon={<Cpu className="size-3.5" />}
-              block={latest?.cpu ?? null}
-              render={() => {
-                const cpu = latest!.cpu as {
-                  state: 'ok';
-                  value: {
-                    utilization: number;
-                    loadAverage: [number, number, number] | null;
-                  };
-                };
-                return {
-                  value: formatPercent(cpu.value.utilization),
-                  sub: cpu.value.loadAverage
-                    ? `load ${cpu.value.loadAverage.map((n) => n.toFixed(2)).join(' ')}`
-                    : undefined,
-                };
-              }}
-            />
-            <MetricCard
-              title="Memory"
-              icon={<MemoryStick className="size-3.5" />}
-              block={latest?.memory ?? null}
-              render={() => {
-                const m = latest!.memory as {
-                  state: 'ok';
-                  value: { utilization: number; used: number; total: number };
-                };
-                return {
-                  value: formatPercent(m.value.utilization),
-                  sub: `${formatBytes(m.value.used)} / ${formatBytes(m.value.total)}`,
-                };
-              }}
-            />
-            <MetricCard
-              title="Disk"
-              icon={<HardDrive className="size-3.5" />}
-              block={latest?.filesystems ?? null}
-              render={() =>
-                rootFs
-                  ? {
-                      value: formatPercent(rootFs.utilization),
-                      sub: `${rootFs.mountpoint} · ${formatBytes(rootFs.available)} free`,
-                    }
-                  : { value: '—' }
-              }
-            />
-            <MetricCard
-              title="Network"
-              icon={<Network className="size-3.5" />}
-              block={latest?.network ?? null}
-              render={() => ({
-                value: formatBytesPerSecond(totalRate),
-                sub: `${net.length} interface${net.length === 1 ? '' : 's'}`,
-              })}
-            />
-            <MetricCard
-              title="Processes"
-              icon={<Activity className="size-3.5" />}
-              block={latest?.processes ?? null}
-              render={() => ({
-                value: String(
-                  latest!.processes.state === 'ok'
-                    ? latest!.processes.value.length
-                    : 0,
-                ),
-                unit: 'running',
-              })}
-            />
-          </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="flex flex-col gap-4 p-4">
+          {disconnected || status === 'error' ? (
+            <Alert
+              variant="destructive"
+              className="animate-in duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] fade-in-0"
+            >
+              <CircleAlert />
+              <AlertTitle>
+                {disconnected
+                  ? 'Monitoring stopped: the connection was lost'
+                  : 'The last sample could not be collected'}
+              </AlertTitle>
+              <AlertDescription>
+                {statusDetail ??
+                  'Charts keep the samples collected so far; nothing is plotted for the time without data.'}
+              </AlertDescription>
+              {disconnected && (
+                <AlertAction>
+                  <Button size="sm" onClick={() => setAttempt((n) => n + 1)}>
+                    <RotateCw data-icon="inline-start" />
+                    Reconnect
+                  </Button>
+                </AlertAction>
+              )}
+            </Alert>
+          ) : stale ? (
+            <Alert
+              variant="warning"
+              className="animate-in duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] fade-in-0"
+            >
+              <CircleAlert />
+              <AlertTitle>Samples are late</AlertTitle>
+              <AlertDescription>
+                No sample has arrived for{' '}
+                {formatDuration(
+                  Math.round((now - (latest?.timestamp ?? now)) / 1000),
+                )}
+                . The values below are from{' '}
+                {latest && formatClock(latest.timestamp)}.
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
-          {/* CPU + Memory */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <Panel>
-              <PanelHeader
-                title="CPU utilization"
-                icon={<Cpu className="size-4" />}
-              />
-              <div className="p-2">
-                <ChartOrEmpty has={cpuData.some((p) => p.cpu !== null)}>
-                  <AreaTrend
+          {/* Overview */}
+          <MetricFrame title="Overview" description="Latest sample">
+            <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+              <StatTile
+                label="CPU"
+                icon={<Cpu />}
+                block={latest?.cpu ?? null}
+                value={
+                  cpu?.utilization != null
+                    ? formatPercent(cpu.utilization)
+                    : null
+                }
+                detail={
+                  cpu?.loadAverage
+                    ? `Load ${cpu.loadAverage.map((n) => n.toFixed(2)).join(' · ')}`
+                    : undefined
+                }
+                trend={
+                  <Sparkline
                     data={cpuData}
                     dataKey="cpu"
                     config={cpuConfig}
                     domain={[0, 100]}
-                    valueFormatter={(v) => `${v}%`}
-                    className="h-44 w-full"
                   />
-                </ChartOrEmpty>
-                {latest?.cpu.state === 'ok' && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 pt-2 text-xs text-muted-foreground tabular-nums">
-                    <span>
-                      user {formatPercent(latest.cpu.value.breakdown.user)}
-                    </span>
-                    <span>
-                      sys {formatPercent(latest.cpu.value.breakdown.system)}
-                    </span>
-                    <span>
-                      iowait {formatPercent(latest.cpu.value.breakdown.iowait)}
-                    </span>
-                    {latest.cpu.value.cores !== null && (
-                      <span>{latest.cpu.value.cores} cores</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Panel>
-            <Panel>
-              <PanelHeader
-                title="Memory"
-                icon={<MemoryStick className="size-4" />}
+                }
               />
-              <div className="p-2">
-                <ChartOrEmpty has={memData.some((p) => p.mem !== null)}>
-                  <AreaTrend
+              <StatTile
+                label="Memory"
+                icon={<MemoryStick />}
+                block={latest?.memory ?? null}
+                value={memory ? formatPercent(memory.utilization) : null}
+                detail={
+                  memory &&
+                  `${formatBytes(memory.used)} of ${formatBytes(memory.total)}`
+                }
+                trend={
+                  <Sparkline
                     data={memData}
                     dataKey="mem"
                     config={memConfig}
                     domain={[0, 100]}
-                    valueFormatter={(v) => `${v}%`}
-                    className="h-44 w-full"
                   />
-                </ChartOrEmpty>
-                {latest?.memory.state === 'ok' && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 pt-2 text-xs text-muted-foreground tabular-nums">
-                    <span>used {formatBytes(latest.memory.value.used)}</span>
-                    <span>
-                      avail {formatBytes(latest.memory.value.available)}
-                    </span>
-                    {latest.memory.value.cached !== null && (
-                      <span>
-                        cache {formatBytes(latest.memory.value.cached)}
-                      </span>
-                    )}
-                    {latest.memory.value.swapTotal ? (
-                      <span>
-                        swap {formatBytes(latest.memory.value.swapUsed)} /{' '}
-                        {formatBytes(latest.memory.value.swapTotal)}
-                      </span>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            </Panel>
-          </div>
-
-          {/* Network + Disk I/O */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <Panel>
-              <PanelHeader
-                title="Network"
-                icon={<Network className="size-4" />}
-                action={
-                  net.length > 0 && (
-                    <Select value={iface ?? ''} onValueChange={setIface}>
-                      <SelectTrigger size="sm" className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {net.map((n) => (
-                          <SelectItem key={n.name} value={n.name}>
-                            {n.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )
                 }
               />
-              <div className="p-2">
-                <ChartOrEmpty has={netData.some((p) => p.rx !== null)}>
-                  <DualLineTrend
-                    data={netData}
-                    keys={['rx', 'tx']}
-                    config={netConfig}
-                    valueFormatter={(v) => formatBytesPerSecond(v)}
-                    className="h-44 w-full"
-                  />
-                </ChartOrEmpty>
-                {selectedIface && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 pt-2 text-xs text-muted-foreground tabular-nums">
-                    <span>
-                      ↓{' '}
-                      {formatBytesPerSecond(
-                        selectedIface.receiveBytesPerSecond,
-                      )}
-                    </span>
-                    <span>
-                      ↑{' '}
-                      {formatBytesPerSecond(
-                        selectedIface.transmitBytesPerSecond,
-                      )}
-                    </span>
-                    <span>rx {formatBytes(selectedIface.receiveBytes)}</span>
-                    <span>tx {formatBytes(selectedIface.transmitBytes)}</span>
-                    {(selectedIface.receiveErrors > 0 ||
-                      selectedIface.transmitErrors > 0) && (
-                      <span className="text-warning-foreground">
-                        errs{' '}
-                        {selectedIface.receiveErrors +
-                          selectedIface.transmitErrors}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Panel>
-            <Panel>
-              <PanelHeader
-                title="Disk I/O"
-                icon={<HardDrive className="size-4" />}
-                action={
-                  disks.length > 0 && (
-                    <Select value={device ?? ''} onValueChange={setDevice}>
-                      <SelectTrigger size="sm" className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {disks.map((d) => (
-                          <SelectItem key={d.device} value={d.device}>
-                            {d.device}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )
+              <StatTile
+                label="Disk"
+                icon={<HardDrive />}
+                block={latest?.filesystems ?? null}
+                value={chosenFs ? formatPercent(chosenFs.utilization) : null}
+                detail={
+                  chosenFs &&
+                  `${chosenFs.mountpoint} · ${formatBytes(chosenFs.available)} free`
                 }
               />
-              <div className="p-2">
-                <ChartOrEmpty
-                  has={ioData.some((p) => p.read !== null)}
-                  emptyLabel={
-                    latest?.diskIo.state === 'unavailable'
-                      ? latest.diskIo.reason
-                      : 'Waiting for disk activity…'
-                  }
-                >
-                  <DualLineTrend
-                    data={ioData}
-                    keys={['read', 'write']}
-                    config={ioConfig}
-                    valueFormatter={(v) => formatBytesPerSecond(v)}
-                    className="h-44 w-full"
+              <StatTile
+                label="Network"
+                icon={<Network />}
+                block={latest?.network ?? null}
+                value={
+                  totalNet !== null ? formatBytesPerSecond(totalNet) : null
+                }
+                detail="All interfaces except loopback"
+                trend={
+                  <Sparkline
+                    data={netTotalData}
+                    dataKey="net"
+                    config={netTotalConfig}
                   />
-                </ChartOrEmpty>
-              </div>
-            </Panel>
-          </div>
-
-          {/* Filesystems */}
-          {latest?.filesystems.state === 'ok' && (
-            <Panel>
-              <PanelHeader
-                title="Filesystems"
-                icon={<HardDrive className="size-4" />}
+                }
               />
-              <div className="flex flex-col gap-2 p-3">
-                {latest.filesystems.value
-                  .filter((f) => !f.pseudo)
-                  .map((f) => (
+              <StatTile
+                label="Processes"
+                icon={<ListTree />}
+                block={latest?.processes ?? null}
+                value={String(processes.length)}
+                detail={`${processes.filter((p) => p.state.startsWith('R')).length} running`}
+              />
+            </div>
+          </MetricFrame>
+
+          {/* CPU and memory */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <MetricFrame
+              title="CPU"
+              description="Busy time across all cores, percent"
+              icon={<Cpu />}
+            >
+              <ChartRegion
+                block={latest?.cpu ?? null}
+                has={cpuData.some((p) => p.cpu !== null)}
+              >
+                <AreaTrend
+                  data={cpuData}
+                  dataKey="cpu"
+                  config={cpuConfig}
+                  domain={[0, 100]}
+                  axisFormatter={percentAxis}
+                  valueFormatter={percentValue}
+                  className="aspect-auto h-44 w-full"
+                />
+              </ChartRegion>
+              <Facts>
+                {cpu?.breakdown ? (
+                  <>
+                    <span>User {formatPercent(cpu.breakdown.user)}</span>
+                    <span>System {formatPercent(cpu.breakdown.system)}</span>
+                    <span>I/O wait {formatPercent(cpu.breakdown.iowait)}</span>
+                  </>
+                ) : (
+                  cpu && <span>Measuring…</span>
+                )}
+                {cpu?.cores != null && <span>{cpu.cores} cores</span>}
+              </Facts>
+              {cpu?.perCore && cpu.perCore.length > 1 && (
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-4">
+                  {cpu.perCore.map((value, index) => (
                     <div
-                      key={`${f.filesystem}-${f.mountpoint}`}
-                      className="flex flex-col gap-1"
+                      key={index}
+                      className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums"
                     >
-                      <div className="flex items-center gap-2 text-xs tabular-nums">
-                        <span className="font-medium">{f.mountpoint}</span>
-                        <span className="text-muted-foreground">
+                      <span className="w-10 shrink-0">cpu{index}</span>
+                      <Progress
+                        value={value}
+                        aria-label={`Core ${index} busy`}
+                        className="min-w-0 flex-1"
+                      />
+                      <span className="w-9 shrink-0 text-end">
+                        {formatPercent(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </MetricFrame>
+
+            <MetricFrame
+              title="Memory"
+              description="In use (total − available), percent"
+              icon={<MemoryStick />}
+            >
+              <ChartRegion
+                block={latest?.memory ?? null}
+                has={memData.some((p) => p.mem !== null)}
+              >
+                <AreaTrend
+                  data={memData}
+                  dataKey="mem"
+                  config={memConfig}
+                  domain={[0, 100]}
+                  axisFormatter={percentAxis}
+                  valueFormatter={percentValue}
+                  className="aspect-auto h-44 w-full"
+                />
+              </ChartRegion>
+              {memory && (
+                <Facts>
+                  <span>Used {formatBytes(memory.used)}</span>
+                  <span>Available {formatBytes(memory.available)}</span>
+                  {memory.cached !== null && (
+                    <span>Cache {formatBytes(memory.cached)}</span>
+                  )}
+                  <span>
+                    {memory.swapTotal
+                      ? `Swap ${formatBytes(memory.swapUsed)} of ${formatBytes(memory.swapTotal)}`
+                      : 'No swap'}
+                  </span>
+                </Facts>
+              )}
+            </MetricFrame>
+          </div>
+
+          {/* Network and disk I/O */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <MetricFrame
+              title="Network"
+              description={
+                iface ? `Throughput on ${iface}, per second` : 'Throughput'
+              }
+              icon={<Network />}
+              action={
+                net.length > 0 && (
+                  <Select
+                    value={iface ?? ''}
+                    onValueChange={(value) => setIface(value)}
+                  >
+                    <SelectTrigger size="sm" aria-label="Network interface">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {net.map((n) => (
+                        <SelectItem key={n.name} value={n.name}>
+                          {n.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )
+              }
+            >
+              <ChartRegion
+                block={latest?.network ?? null}
+                has={netData.some((p) => p.rx !== null)}
+              >
+                <LineTrend
+                  data={netData}
+                  keys={['rx', 'tx']}
+                  config={netConfig}
+                  axisFormatter={formatBytesCompact}
+                  valueFormatter={rateValue}
+                  className="aspect-auto h-48 w-full"
+                />
+              </ChartRegion>
+              {selectedIface && (
+                <Facts>
+                  <span>
+                    Received {formatBytes(selectedIface.receiveBytes)} ·{' '}
+                    {selectedIface.receivePackets.toLocaleString()} packets
+                  </span>
+                  <span>
+                    Sent {formatBytes(selectedIface.transmitBytes)} ·{' '}
+                    {selectedIface.transmitPackets.toLocaleString()} packets
+                  </span>
+                  <span>
+                    Errors{' '}
+                    {selectedIface.receiveErrors + selectedIface.transmitErrors}{' '}
+                    · Drops{' '}
+                    {selectedIface.receiveDrops + selectedIface.transmitDrops}
+                  </span>
+                </Facts>
+              )}
+            </MetricFrame>
+
+            <MetricFrame
+              title="Disk I/O"
+              description={
+                device ? `Throughput on ${device}, per second` : 'Throughput'
+              }
+              icon={<HardDrive />}
+              action={
+                disks.length > 0 && (
+                  <Select
+                    value={device ?? ''}
+                    onValueChange={(value) => setDevice(value)}
+                  >
+                    <SelectTrigger size="sm" aria-label="Disk">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {disks.map((d) => (
+                        <SelectItem key={d.device} value={d.device}>
+                          {d.device}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )
+              }
+            >
+              <ChartRegion
+                block={latest?.diskIo ?? null}
+                has={ioData.some((p) => p.read !== null)}
+              >
+                <LineTrend
+                  data={ioData}
+                  keys={['read', 'write']}
+                  config={ioConfig}
+                  axisFormatter={formatBytesCompact}
+                  valueFormatter={rateValue}
+                  className="aspect-auto h-48 w-full"
+                />
+              </ChartRegion>
+            </MetricFrame>
+          </div>
+
+          {/* Filesystem capacity: a different metric from I/O throughput, kept separate. */}
+          <MetricFrame
+            title="Filesystems"
+            description="Capacity used per mount; select one to show it in the overview"
+            icon={<HardDrive />}
+            action={
+              filesystems.length > physical.length && (
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id={`${paneId}-virtual`}
+                    size="sm"
+                    checked={showVirtual}
+                    onCheckedChange={setShowVirtual}
+                  />
+                  <Label
+                    htmlFor={`${paneId}-virtual`}
+                    className="text-xs font-normal text-muted-foreground"
+                  >
+                    Virtual ({filesystems.length - physical.length})
+                  </Label>
+                </div>
+              )
+            }
+          >
+            {latest === null ? (
+              <ChartRegion block={null} has={false}>
+                {null}
+              </ChartRegion>
+            ) : latest.filesystems.state === 'unavailable' ? (
+              <p className="text-sm text-muted-foreground">
+                {latest.filesystems.reason}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {shownFilesystems.map((f) => {
+                  const chosen = f === chosenFs;
+                  return (
+                    <button
+                      key={`${f.filesystem}:${f.mountpoint}`}
+                      type="button"
+                      aria-pressed={chosen}
+                      onClick={() => setMount(f.mountpoint)}
+                      className="flex flex-col gap-1.5 rounded-md px-2 py-1.5 text-start transition-colors hover:bg-accent aria-pressed:bg-accent"
+                    >
+                      <span className="flex min-w-0 items-center gap-2 text-sm">
+                        <span
+                          className="truncate font-medium"
+                          title={f.mountpoint}
+                        >
+                          {f.mountpoint}
+                        </span>
+                        <span
+                          className="truncate text-xs text-muted-foreground"
+                          title={f.filesystem}
+                        >
                           {f.filesystem}
                           {f.type ? ` · ${f.type}` : ''}
                         </span>
-                        <span className="ml-auto text-muted-foreground">
-                          {formatBytes(f.used)} / {formatBytes(f.total)} ·{' '}
+                        {f.pseudo && <Badge variant="secondary">Virtual</Badge>}
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                          {formatBytes(f.used)} of {formatBytes(f.total)} ·{' '}
                           {formatPercent(f.utilization)}
                         </span>
-                      </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                        <div
-                          className={cn(
-                            'h-full rounded-full',
-                            f.utilization > 90
-                              ? 'bg-destructive'
-                              : f.utilization > 75
-                                ? 'bg-warning'
-                                : 'bg-primary',
-                          )}
-                          style={{ width: `${Math.min(100, f.utilization)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </Panel>
-          )}
-
-          {/* Processes */}
-          <Panel className="min-h-80">
-            <PanelHeader
-              title="Processes"
-              icon={<Activity className="size-4" />}
-            />
-            {latest?.processes.state === 'ok' ? (
-              <ProcessTable processes={latest.processes.value} />
-            ) : (
-              <div className="p-6 text-center text-sm text-muted-foreground">
-                {latest?.processes.state === 'unavailable'
-                  ? latest.processes.reason
-                  : 'Waiting for the first sample…'}
+                      </span>
+                      <Progress
+                        value={Math.min(100, f.utilization)}
+                        aria-label={`${f.mountpoint} capacity used`}
+                        className={
+                          f.utilization >= 90
+                            ? '**:data-[slot=progress-indicator]:bg-destructive'
+                            : f.utilization >= 75
+                              ? '**:data-[slot=progress-indicator]:bg-warning'
+                              : undefined
+                        }
+                      />
+                    </button>
+                  );
+                })}
               </div>
             )}
-          </Panel>
+          </MetricFrame>
+
+          {/* Processes */}
+          <MetricFrame
+            title="Processes"
+            description={
+              latest?.processes.state === 'ok'
+                ? `${processes.length} on the host${term ? ` · ${shownProcesses.length} shown` : ''}`
+                : undefined
+            }
+            icon={<ListTree />}
+            flush
+            action={
+              <InputGroup className="w-48 bg-background">
+                <InputGroupAddon>
+                  <Search />
+                </InputGroupAddon>
+                <InputGroupInput
+                  value={processFilter}
+                  onChange={(event) => setProcessFilter(event.target.value)}
+                  placeholder="Filter processes"
+                  aria-label="Filter processes"
+                />
+                {processFilter && (
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupButton
+                      size="icon-xs"
+                      aria-label="Clear filter"
+                      onClick={() => setProcessFilter('')}
+                    >
+                      <X />
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                )}
+              </InputGroup>
+            }
+            footer={
+              selectedPid !== null && (
+                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground tabular-nums">
+                  {selectedProcess ? (
+                    <>
+                      <span className="font-medium text-foreground">
+                        PID {selectedProcess.pid}
+                      </span>
+                      <span>Parent {selectedProcess.ppid}</span>
+                      <span>User {selectedProcess.user}</span>
+                      <span>State {selectedProcess.state}</span>
+                      <span>Resident {formatBytes(selectedProcess.rss)}</span>
+                      <span>
+                        Running {formatDuration(selectedProcess.elapsedSeconds)}
+                      </span>
+                      <span
+                        className="min-w-0 truncate font-mono"
+                        title={selectedProcess.name}
+                      >
+                        {selectedProcess.name}
+                      </span>
+                    </>
+                  ) : (
+                    <span>Process {selectedPid} has exited.</span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto"
+                    onClick={() => setSelectedPid(null)}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )
+            }
+          >
+            {latest === null ? (
+              <div className="p-3">
+                <ChartRegion block={null} has={false}>
+                  {null}
+                </ChartRegion>
+              </div>
+            ) : latest.processes.state === 'unavailable' ? (
+              <p className="p-3 text-sm text-muted-foreground">
+                {latest.processes.reason}
+              </p>
+            ) : (
+              <ProcessTable
+                processes={shownProcesses}
+                selectedPid={selectedPid}
+                onSelect={setSelectedPid}
+                emptyMessage={
+                  <div className="flex flex-col items-center gap-2 py-6 text-sm text-muted-foreground">
+                    No processes match “{processFilter.trim()}”.
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setProcessFilter('')}
+                    >
+                      Clear filter
+                    </Button>
+                  </div>
+                }
+              />
+            )}
+          </MetricFrame>
         </div>
       </div>
     </Shell>
@@ -735,78 +989,73 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function StatusBadge({
-  status,
-  detail,
-}: {
-  status: MonitorStatus;
-  detail?: string;
-}) {
-  if (status === 'disconnected' || status === 'error')
-    return (
-      <Tooltip>
-        <TooltipTrigger
-          render={<Badge variant="destructive-light" size="sm" />}
-        >
-          {status === 'disconnected' ? 'Disconnected' : 'Error'}
-        </TooltipTrigger>
-        {detail && <TooltipContent>{detail}</TooltipContent>}
-      </Tooltip>
-    );
-  if (status === 'idle')
-    return (
-      <Badge variant="secondary" size="sm">
-        Paused
-      </Badge>
-    );
+/** A row of secondary facts under a chart. */
+function Facts({ children }: { children: React.ReactNode }) {
   return (
-    <Badge variant="success-light" size="sm">
-      Live
-    </Badge>
-  );
-}
-
-function ChartOrEmpty({
-  has,
-  emptyLabel = 'Collecting samples…',
-  children,
-}: {
-  has: boolean;
-  emptyLabel?: string;
-  children: React.ReactNode;
-}) {
-  if (has) return <>{children}</>;
-  return (
-    <div className="flex h-44 items-center justify-center text-xs text-muted-foreground">
-      {emptyLabel}
+    <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2 text-xs text-muted-foreground tabular-nums">
+      {children}
     </div>
   );
 }
 
-function IconButton({
-  label,
-  onClick,
+/**
+ * A chart's data region: a skeleton until the first sample, the metric's own reason when the host
+ * cannot provide it, "Measuring…" until a rate has two samples, then the chart.
+ */
+function ChartRegion({
+  block,
+  has,
   children,
 }: {
-  label: string;
-  onClick: () => void;
+  block:
+    | MetricsSample['cpu']
+    | MetricsSample['memory']
+    | MetricsSample['network']
+    | MetricsSample['diskIo']
+    | null;
+  has: boolean;
   children: React.ReactNode;
 }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onClick}
-            aria-label={label}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
+  if (block === null) return <Skeleton className="h-44 w-full" />;
+  if (block.state === 'unavailable')
+    return (
+      <div className="flex h-44 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+        {block.reason}
+      </div>
+    );
+  if (!has)
+    return (
+      <div className="flex h-44 items-center justify-center text-sm text-muted-foreground">
+        Measuring… a rate needs two samples.
+      </div>
+    );
+  return <>{children}</>;
+}
+
+function StatusBadge({
+  status,
+  stale,
+  paused,
+  detail,
+}: {
+  status: MonitorStatus;
+  stale: boolean;
+  paused: boolean;
+  detail?: string;
+}) {
+  if (status === 'disconnected')
+    return <Badge variant="destructive-light">Disconnected</Badge>;
+  if (status === 'error')
+    return (
+      <Badge variant="destructive-light" title={detail}>
+        Error
+      </Badge>
+    );
+  if (status === 'connecting')
+    return <Badge variant="secondary">Connecting</Badge>;
+  if (paused) return <Badge variant="secondary">Paused</Badge>;
+  if (status === 'idle')
+    return <Badge variant="secondary">Paused while hidden</Badge>;
+  if (stale) return <Badge variant="warning-light">Stale</Badge>;
+  return <Badge variant="success-light">Live</Badge>;
 }
