@@ -33,13 +33,17 @@ export function isLoopback(name: string): boolean {
   return name === 'lo' || name.startsWith('lo:');
 }
 
-/** The interface to show first: the first non-loopback one, else whatever exists. */
+/** The interface to show first: the busiest non-loopback one, else whatever exists. */
 export function defaultInterface(
   interfaces: NetworkInterfaceMetric[],
 ): string | null {
-  return (
-    (interfaces.find((i) => !isLoopback(i.name)) ?? interfaces[0])?.name ?? null
-  );
+  let best: NetworkInterfaceMetric | null = null;
+  for (const i of interfaces) {
+    if (isLoopback(i.name)) continue;
+    const bytes = i.receiveBytes + i.transmitBytes;
+    if (!best || bytes > best.receiveBytes + best.transmitBytes) best = i;
+  }
+  return (best ?? interfaces[0])?.name ?? null;
 }
 
 /**

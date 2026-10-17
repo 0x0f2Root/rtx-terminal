@@ -75,11 +75,15 @@ describe('network totals', () => {
     expect(externalThroughput([iface('eth0', null, 50)])).toBe(50);
   });
 
-  it('prefers a real interface over loopback as the default', () => {
+  it('defaults to the busiest non-loopback interface', () => {
     expect(defaultInterface([iface('lo', 0, 0), iface('ens3', 0, 0)])).toBe(
       'ens3',
     );
     expect(defaultInterface([iface('lo', 0, 0)])).toBe('lo');
+    const busy = { ...iface('eth0', 0, 0), receiveBytes: 5_000 };
+    expect(
+      defaultInterface([iface('lo', 0, 0), iface('ifb0', 0, 0), busy]),
+    ).toBe('eth0');
     expect(defaultInterface([])).toBeNull();
   });
 });

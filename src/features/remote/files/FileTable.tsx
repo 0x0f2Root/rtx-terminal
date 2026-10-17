@@ -1,4 +1,11 @@
-import { useMemo, type KeyboardEvent, type MouseEvent } from 'react';
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import {
   File as FileIcon,
   FileQuestion,
@@ -145,7 +152,7 @@ const columns: ColumnDef<DataGridFeatures, RemoteDirEntry>[] = [
       <DataGridColumnHeader title="Modified" column={column} />
     ),
     cell: ({ row }) => formatDateTime(row.original.mtime),
-    size: 168,
+    size: 192,
     meta: { cellClassName: 'tabular-nums text-muted-foreground' },
   },
 ];
@@ -176,7 +183,27 @@ export type FileTableProps = {
   onKeyDown: (event: KeyboardEvent) => void;
 };
 
+/**
+ * The grid's scroll area sizes to an explicit height, not to a flex parent, so the region's
+ * measured height is handed down; the listing then scrolls inside the pane instead of growing it.
+ */
+function useFillHeight() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) =>
+      setHeight(Math.floor(entry.contentRect.height)),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, height };
+}
+
 export function FileTable(props: FileTableProps) {
+  const fill = useFillHeight();
   // TanStack v9 row selection lists only selected ids, each mapped to `true`.
   const rowSelection = useMemo(() => {
     const state: Record<string, true> = {};
@@ -203,6 +230,7 @@ export function FileTable(props: FileTableProps) {
 
   return (
     <div
+      ref={fill.ref}
       role="region"
       tabIndex={0}
       aria-label="Remote files"
@@ -236,7 +264,9 @@ export function FileTable(props: FileTableProps) {
           bodyRow: 'cursor-default select-none',
         }}
       >
-        <DataGridScrollArea className="min-h-0 flex-1">
+        <DataGridScrollArea
+          style={fill.height === null ? undefined : { height: fill.height }}
+        >
           <DataGridTableVirtual
             estimateSize={ROW_HEIGHT}
             scrollToRowIndex={props.revealIndex}
