@@ -688,7 +688,7 @@ export const ACTIONS: ActionDef[] = [
   },
   {
     id: 'app.about',
-    title: 'About rtx-terminal',
+    title: 'About RTX-Terminal',
     group: 'App',
     scope: 'global',
     defaultShortcut: null,

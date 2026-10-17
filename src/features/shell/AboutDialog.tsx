@@ -38,7 +38,7 @@ export function AboutDialog() {
     <Dialog open={open} onOpenChange={(next) => patchUi({ aboutOpen: next })}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>About rtx-terminal</DialogTitle>
+          <DialogTitle>About RTX-Terminal</DialogTitle>
           <DialogDescription>
             A keyboard-driven terminal for Linux.
           </DialogDescription>

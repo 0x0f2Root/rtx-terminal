@@ -11,10 +11,23 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.png" alt="rtx-terminal in the Glass theme: a zsh session with the sidebar showing open terminals, saved commands and SSH hosts" width="900">
+  <img src="public/rtx.png" alt="rtx-terminal in the Glass theme: a zsh session with the sidebar showing open terminals, saved commands and SSH hosts" width="900">
 </p>
 
 ## Features
+<p align="center">
+  SSH Resources Monitor
+</p>
+<p align="center">
+  <img src="public/rtx3.png" width="900">
+</p>
+<p align="center">
+  SSH Remote File Manager
+</p>
+<p align="center">
+  <img src="public/RTX4.png" width="900">
+</p>
+
 
 - **Real local shells** through node-pty: interactive programs (`vim`, `top`, `htop`, `ssh`), ANSI and
   24-bit color, Unicode 11 widths, resize handling, clean process shutdown.

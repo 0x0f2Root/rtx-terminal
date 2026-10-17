@@ -26,22 +26,22 @@ const RUNTIME_MODULES = [
 ];
 
 const linuxMetadata = {
-  name: 'rtx-terminal',
-  productName: 'rtx-terminal',
+  name: 'RTX-Terminal',
+  productName: 'RTX-Terminal',
   genericName: 'Terminal',
   description: 'A keyboard-driven terminal for Linux',
   productDescription:
-    'rtx-terminal is a GPU-accelerated terminal emulator with tabs, split panes, saved commands and a command palette.',
+    'RTX-Terminal is a GPU-accelerated terminal emulator with tabs, split panes, saved commands and a command palette.',
   // The makers accept freedesktop main categories only.
   categories: ['System', 'Utility'] as ('System' | 'Utility')[],
   icon: 'assets/icon.png',
-  bin: 'rtx-terminal',
+  bin: 'RTX-Terminal',
 };
 
 const config: ForgeConfig = {
   packagerConfig: {
-    name: 'rtx-terminal',
-    executableName: 'rtx-terminal',
+    name: 'RTX-Terminal',
+    executableName: 'RTX-Terminal',
     asar: true,
     icon: 'assets/icon',
     extraResource: ['assets/icon.png'],

@@ -742,10 +742,7 @@ export function AppSidebar() {
 
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="text-sm font-semibold tracking-tight">
-              rtx-terminal
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Local workspace
+              RTX-Terminal
             </span>
           </div>
         </div>

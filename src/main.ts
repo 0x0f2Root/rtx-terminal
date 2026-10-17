@@ -24,7 +24,7 @@ if (started) {
   app.quit();
 }
 
-app.setName('rtx-terminal');
+app.setName('RTX-Terminal');
 
 const isDev = Boolean(MAIN_WINDOW_VITE_DEV_SERVER_URL);
 const rendererFile = path.join(
@@ -128,7 +128,7 @@ function createWindow(): BrowserWindow {
     minWidth: 640,
     minHeight: 400,
     show: false,
-    title: 'rtx-terminal',
+    title: 'RTX-Terminal',
     backgroundColor: '#0c0d10',
     autoHideMenuBar: true,
     icon: app.isPackaged

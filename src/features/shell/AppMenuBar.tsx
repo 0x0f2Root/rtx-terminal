@@ -319,7 +319,7 @@ export function AppMenuBar() {
             Keyboard Shortcuts
           </MenubarItem>
           <MenubarSeparator />
-          <ActionItem action="app.about">About rtx-terminal</ActionItem>
+          <ActionItem action="app.about">About RTX-Terminal</ActionItem>
         </MenuGroup>
       </Menubar>
     </nav>
