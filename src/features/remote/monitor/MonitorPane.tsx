@@ -61,7 +61,7 @@ import type { RemoteEndpoint, SshConnectState } from '@/shared/api';
 import { appData } from '@/state/app-data';
 import { closePane } from '@/features/actions';
 import { openTab, useWorkspace } from '@/state/workspace';
-import { openRemote } from '../remote-open';
+import { openRemote, useRemotePaneStatus } from '../remote-open';
 import {
   formatBytes,
   formatBytesCompact,
@@ -180,6 +180,18 @@ export function MonitorPane({
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
 
   const latest = history.length > 0 ? history[history.length - 1] : null;
+
+  useRemotePaneStatus(
+    paneId,
+    conn.status === 'connecting'
+      ? 'starting'
+      : conn.status === 'error'
+        ? 'error'
+        : status === 'disconnected'
+          ? 'exited'
+          : 'running',
+    conn.status === 'error' ? conn.error : null,
+  );
 
   // --- connection ------------------------------------------------------------
 

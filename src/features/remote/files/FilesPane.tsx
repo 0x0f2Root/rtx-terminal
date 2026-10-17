@@ -89,7 +89,7 @@ import type { RemoteEndpoint, SshConnectState } from '@/shared/api';
 import { appData } from '@/state/app-data';
 import { closePane } from '@/features/actions';
 import { openTab, useWorkspace } from '@/state/workspace';
-import { openRemote } from '../remote-open';
+import { openRemote, useRemotePaneStatus } from '../remote-open';
 import { FileTable } from './FileTable';
 import { TransferPanel } from './TransferPanel';
 import { ConflictDialog } from './file-dialogs';
@@ -170,6 +170,18 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
   const [renameTarget, setRenameTarget] = useState<RemoteDirEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RemoteDirEntry | null>(null);
   const [pending, setPending] = useState<PendingTransfer | null>(null);
+
+  useRemotePaneStatus(
+    paneId,
+    conn.status === 'ready'
+      ? 'running'
+      : conn.status === 'connecting'
+        ? 'starting'
+        : conn.status === 'error'
+          ? 'error'
+          : 'exited',
+    conn.status === 'error' ? conn.error : null,
+  );
 
   // --- connection lifecycle --------------------------------------------------
 

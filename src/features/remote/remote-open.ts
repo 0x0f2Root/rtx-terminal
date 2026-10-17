@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import type { RemoteOpenResult, SshConnectState } from '@/shared/api';
 import { appData } from '@/state/app-data';
+import { updatePane, type PaneStatus } from '@/state/workspace';
 import { newId } from '@/lib/ids';
 import {
   askCredential,
@@ -15,6 +17,20 @@ import {
  */
 
 export type RemoteKind = 'files' | 'monitor';
+
+/**
+ * Mirrors a remote view's connection state into its pane, so the tab's status dot and the
+ * sidebar's host indicator read the same as for a terminal on that host.
+ */
+export function useRemotePaneStatus(
+  paneId: string,
+  status: PaneStatus,
+  error: string | null = null,
+): void {
+  useEffect(() => {
+    updatePane(paneId, { status, error });
+  }, [paneId, status, error]);
+}
 
 export type OpenRemoteOptions = {
   onProgress?: (state: SshConnectState) => void;
