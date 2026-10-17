@@ -15,6 +15,19 @@ export function formatBytes(bytes: number | null, fractionDigits = 1): string {
   return `${value.toFixed(fractionDigits)} ${BYTE_UNITS[unit]}`;
 }
 
+/** A short IEC size for chart axes, where the unit is stated once in the chart's description. */
+export function formatBytesCompact(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.round(bytes)}`;
+  const units = ['K', 'M', 'G', 'T'] as const;
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 ? Math.round(value) : value.toFixed(1)}${units[unit]}`;
+}
+
 export function formatBytesPerSecond(bytesPerSecond: number | null): string {
   if (bytesPerSecond === null || !Number.isFinite(bytesPerSecond)) return '—';
   return `${formatBytes(bytesPerSecond, 1)}/s`;

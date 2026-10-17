@@ -51,6 +51,8 @@ export type TransferStatus =
   | 'queued'
   | 'transferring'
   | 'completed'
+  /** Not transferred because the destination existed and the user chose to skip it. */
+  | 'skipped'
   | 'cancelled'
   | 'failed';
 
@@ -110,10 +112,18 @@ export type MetricBlock<T> =
   | { state: 'unavailable'; reason: string };
 
 export type CpuMetric = {
-  /** Overall busy percentage over the last interval (0-100), from two /proc/stat samples. */
-  utilization: number;
-  /** Component percentages over the same interval; sum to roughly 100. */
-  breakdown: { user: number; system: number; idle: number; iowait: number };
+  /**
+   * Overall busy percentage over the last interval (0-100), from two /proc/stat samples. null on
+   * the first sample, when there is no earlier one to compare with: it is never reported as 0.
+   */
+  utilization: number | null;
+  /** Component percentages over the same interval (sum to roughly 100); null with utilization. */
+  breakdown: {
+    user: number;
+    system: number;
+    idle: number;
+    iowait: number;
+  } | null;
   cores: number | null;
   /** 1, 5 and 15 minute load averages; distinct from utilization. */
   loadAverage: [number, number, number] | null;
@@ -150,14 +160,16 @@ export type FilesystemMetric = {
 
 export type DiskIoMetric = {
   device: string;
-  readBytesPerSecond: number;
-  writeBytesPerSecond: number;
+  /** Throughput since the previous sample; null when it cannot be measured (first sample, counter reset). */
+  readBytesPerSecond: number | null;
+  writeBytesPerSecond: number | null;
 };
 
 export type NetworkInterfaceMetric = {
   name: string;
-  receiveBytesPerSecond: number;
-  transmitBytesPerSecond: number;
+  /** Throughput since the previous sample; null when it cannot be measured (first sample, counter reset). */
+  receiveBytesPerSecond: number | null;
+  transmitBytesPerSecond: number | null;
   receiveBytes: number;
   transmitBytes: number;
   receivePackets: number;

@@ -37,7 +37,7 @@ describe('CPU parsing', () => {
     // Between samples: busy delta = (50+50)=100, total delta = 200, so 50%.
     const util = cpuUtilization(a.all, b.all);
     expect(util.utilization).toBeCloseTo(50, 5);
-    expect(util.breakdown.idle).toBeCloseTo(50, 5);
+    expect(util.breakdown?.idle).toBeCloseTo(50, 5);
   });
 
   it('separates per-core lines from the aggregate', () => {
@@ -45,9 +45,12 @@ describe('CPU parsing', () => {
     expect(snap.perCore).toHaveLength(2);
   });
 
-  it('reports 0 when total does not advance', () => {
+  it('reports no utilization, not 0%, when the counters do not advance', () => {
     const times = parseProcStat('cpu 1 1 1 1')!.all;
-    expect(cpuUtilization(times, times).utilization).toBe(0);
+    expect(cpuUtilization(times, times)).toEqual({
+      utilization: null,
+      breakdown: null,
+    });
   });
 });
 
@@ -100,8 +103,9 @@ describe('network parsing', () => {
     expect(rate(1000, 3000, 2)).toBe(1000); // (3000-1000)/2
   });
 
-  it('returns 0 on a counter reset rather than a negative rate', () => {
-    expect(rate(5000, 10, 2)).toBe(0);
+  it('reports an unknown rate, not 0 or a negative one, on a counter reset', () => {
+    expect(rate(5000, 10, 2)).toBeNull();
+    expect(rate(10, 20, 0)).toBeNull();
   });
 });
 
@@ -260,8 +264,21 @@ describe('MetricsCollector over a real exec channel', () => {
 
     const first = await collector.collect({ now: 1000 });
     expect(first.cpu.state).toBe('ok');
-    // First tick has no previous counters, so utilization is a zero baseline.
-    if (first.cpu.state === 'ok') expect(first.cpu.value.utilization).toBe(0);
+    // The first tick has nothing to compare with: rates are unmeasured (null), never a fake 0.
+    if (first.cpu.state === 'ok') {
+      expect(first.cpu.value.utilization).toBeNull();
+      expect(first.cpu.value.breakdown).toBeNull();
+      // Core count and load averages are real on the very first sample.
+      expect(first.cpu.value.cores).toBe(1);
+      expect(first.cpu.value.loadAverage).toEqual([0.1, 0.2, 0.3]);
+    }
+    if (first.network.state === 'ok') {
+      const eth0 = first.network.value.find((n) => n.name === 'eth0')!;
+      expect(eth0.receiveBytesPerSecond).toBeNull();
+      expect(eth0.receiveBytes).toBe(1000);
+    }
+    if (first.diskIo.state === 'ok')
+      expect(first.diskIo.value[0].readBytesPerSecond).toBeNull();
     expect(first.memory.state).toBe('ok');
     if (first.memory.state === 'ok')
       expect(first.memory.value.used).toBe((2000 - 800) * 1024);

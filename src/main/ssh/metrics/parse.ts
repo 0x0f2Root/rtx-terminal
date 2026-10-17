@@ -81,15 +81,12 @@ export function cpuUtilization(
   previous: CpuTimes,
   current: CpuTimes,
 ): {
-  utilization: number;
+  utilization: number | null;
   breakdown: CpuMetric['breakdown'];
 } {
   const totalDelta = current.total - previous.total;
-  if (totalDelta <= 0)
-    return {
-      utilization: 0,
-      breakdown: { user: 0, system: 0, idle: 100, iowait: 0 },
-    };
+  // No jiffies elapsed (or the counters went backwards after a reboot): nothing was measured.
+  if (totalDelta <= 0) return { utilization: null, breakdown: null };
   const idleDelta = Math.max(0, current.idle - previous.idle);
   const pct = (value: number) =>
     Math.min(100, Math.max(0, (value / totalDelta) * 100));
@@ -311,15 +308,18 @@ export function parseNetDev(text: string): NetCounters {
   return map;
 }
 
-/** Per-second rate between two cumulative counters, guarding against counter resets. */
+/**
+ * Per-second rate between two cumulative counters. Returns null when no rate can be measured: no
+ * time has passed, or the counter went backwards (it wrapped, or the device or interface reset).
+ * An unknown rate is reported as unknown, never as zero.
+ */
 export function rate(
   previous: number,
   current: number,
   seconds: number,
-): number {
-  if (seconds <= 0) return 0;
-  // A smaller current value means the counter wrapped or the device reset; report 0 for this tick.
-  if (current < previous) return 0;
+): number | null {
+  if (seconds <= 0) return null;
+  if (current < previous) return null;
   return (current - previous) / seconds;
 }
 

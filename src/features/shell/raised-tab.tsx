@@ -2,6 +2,8 @@ import { useRef, type ReactNode } from 'react';
 import {
   Check,
   Columns2,
+  FolderTree,
+  Gauge,
   Globe,
   Palette,
   Pencil,
@@ -62,13 +64,23 @@ export function TabLabel({ tab, icon }: { tab: Tab; icon?: ReactNode }) {
   const title = useWorkspace((s) => tabTitle(tab, s));
   const status = useWorkspace((s) => s.panes[tab.activePaneId]?.status);
   const remote = useWorkspace((s) => !!s.panes[tab.activePaneId]?.launch.ssh);
+  const view = useWorkspace((s) => s.panes[tab.activePaneId]?.launch.view);
   const paneCount = paneIds(tab.root).length;
+  // A remote view's icon says what the tab is: the title alone is the host's name for all three.
+  const kind =
+    view === 'files'
+      ? { Icon: FolderTree, label: 'Remote files' }
+      : view === 'monitor'
+        ? { Icon: Gauge, label: 'Resource monitor' }
+        : remote
+          ? { Icon: Globe, label: 'SSH session' }
+          : null;
   return (
     <>
-      {remote ? (
-        <Globe
+      {kind ? (
+        <kind.Icon
           className="relative size-3.5 shrink-0 opacity-70"
-          aria-label="SSH session"
+          aria-label={kind.label}
         />
       ) : (
         icon

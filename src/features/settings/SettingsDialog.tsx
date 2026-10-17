@@ -149,8 +149,10 @@ function ThemesSection() {
                 }))
               }
             >
-              <span className="truncate">{theme.name}</span>
-              {active && <Badge variant="primary-light">Active</Badge>}
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate">{theme.name}</span>
+                {active && <Badge variant="primary-light">Active</Badge>}
+              </span>
               <ThemePreview theme={theme.id} />
             </Button>
           );

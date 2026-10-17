@@ -219,7 +219,7 @@ export class TransferManager {
     try {
       const destination = await this.resolveDestination(spec);
       if (destination === null) {
-        this.update(task, { status: 'cancelled', error: null }); // skipped by conflict choice
+        this.update(task, { status: 'skipped', error: null });
         return;
       }
       const overwrite = destination.overwrite;

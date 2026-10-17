@@ -2,5 +2,6 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "categories": {
     "correctness": "warn"
-  }
+  },
+  "ignorePatterns": ["src/components/ui/**", "src/components/reui/**"]
 }
