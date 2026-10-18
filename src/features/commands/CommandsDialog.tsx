@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
@@ -505,12 +506,14 @@ export function CommandsDialog() {
         </div>
         <div className="flex min-h-0 flex-1 gap-4">
           <CategoryRail selected={category} onSelect={setCategory} />
-          <ScrollArea className="min-h-0 flex-1">
+          <ScrollArea className="min-h-0 min-w-0 flex-1">
             {visible.length === 0 ? (
               <Empty className="h-full">
                 <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <SquareTerminal />
+                  <EmptyMedia>
+                    <IconTile variant="elevated" size="lg" aria-hidden="true">
+                      <SquareTerminal />
+                    </IconTile>
                   </EmptyMedia>
                   <EmptyTitle>
                     {commands.length === 0

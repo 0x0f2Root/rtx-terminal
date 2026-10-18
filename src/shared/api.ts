@@ -223,6 +223,11 @@ export interface RtxApi {
     pickDirectory(): Promise<string | null>;
     /** Lets the user pick one or more files with the native dialog, for uploads. */
     pickFiles(): Promise<string[]>;
+    /**
+     * Which of `names` already exist directly in `dir`. Only answers for a directory the user
+     * picked with `pickDirectory`, so the page cannot probe arbitrary local paths.
+     */
+    existingNames(dir: string, names: string[]): Promise<string[]>;
     appInfo(): Promise<AppInfo>;
     /** Toggles the window's full screen state and returns the new state. */
     toggleFullScreen(): Promise<boolean>;
@@ -326,6 +331,7 @@ export const IPC = {
   systemReadClipboard: 'system:read-clipboard',
   systemWriteClipboard: 'system:write-clipboard',
   systemPickDirectory: 'system:pick-directory',
+  systemExistingNames: 'system:existing-names',
   systemAppInfo: 'system:app-info',
   systemToggleFullScreen: 'system:toggle-full-screen',
   systemQuit: 'system:quit',

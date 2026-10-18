@@ -1,5 +1,6 @@
 import { Pencil, RotateCw, ServerOff, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/reui/badge';
+import { IconTile } from '@/components/reui/icon-tile';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -78,11 +79,15 @@ export function SshPaneStatus({ pane }: { pane: PaneState }) {
       <div className="absolute inset-0 flex items-center justify-center bg-workspace/90 p-6">
         <Empty className="max-w-md">
           <EmptyHeader>
-            <EmptyMedia
-              variant="icon"
-              className={hostKey ? 'text-destructive' : undefined}
-            >
-              {hostKey ? <ShieldAlert /> : <ServerOff />}
+            <EmptyMedia>
+              <IconTile
+                variant="elevated"
+                size="lg"
+                aria-hidden="true"
+                className={hostKey ? 'text-destructive' : undefined}
+              >
+                {hostKey ? <ShieldAlert /> : <ServerOff />}
+              </IconTile>
             </EmptyMedia>
             <EmptyTitle>
               {(pane.errorCode && ERROR_TITLES[pane.errorCode]) ??

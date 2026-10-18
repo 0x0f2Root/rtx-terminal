@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -350,8 +351,10 @@ export function MonitorPane({
       <Shell>
         <Empty className="flex-1">
           <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Unplug />
+            <EmptyMedia>
+              <IconTile variant="elevated" size="lg" aria-hidden="true">
+                <Unplug />
+              </IconTile>
             </EmptyMedia>
             <EmptyTitle>Could not start monitoring</EmptyTitle>
             <EmptyDescription>{conn.error}</EmptyDescription>
@@ -405,7 +408,9 @@ export function MonitorPane({
       {/* Host header */}
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b bg-chrome px-3 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
-          <Activity className="size-4 shrink-0 text-muted-foreground" />
+          <IconTile variant="elevated" size="xs" aria-hidden="true">
+            <Activity />
+          </IconTile>
           <span className="truncate text-sm font-medium">{displayName}</span>
           <StatusBadge
             status={status}

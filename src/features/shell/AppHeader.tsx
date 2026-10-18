@@ -37,7 +37,6 @@ import {
   newTab,
   newTabHere,
   openPalette,
-  openProfile,
   openSearch,
   runAction,
   shortcutFor,
@@ -50,7 +49,6 @@ function useShortcut(action: string) {
 
 function NewTabMenu() {
   const shells = useAppData((s) => s.shells);
-  const profiles = useAppData((s) => s.profiles.profiles);
   const newShortcut = useShortcut('terminal.new');
   return (
     <div className="flex items-center">
@@ -103,23 +101,6 @@ function NewTabMenu() {
                     <span className="ml-auto truncate text-xs text-muted-foreground">
                       {shell.path}
                     </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-            </>
-          )}
-          {profiles.length > 0 && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Saved sessions</DropdownMenuLabel>
-                {profiles.map((profile) => (
-                  <DropdownMenuItem
-                    key={profile.id}
-                    onClick={() => openProfile(profile)}
-                  >
-                    <SquareTerminal />
-                    <span className="truncate">{profile.name}</span>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuGroup>

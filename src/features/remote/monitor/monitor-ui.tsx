@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { IconTile } from '@/components/reui/icon-tile';
 import {
   Frame,
   FrameDescription,
@@ -40,7 +41,9 @@ export function MetricFrame({
     <Frame spacing="sm" stacked={flush} dense={flush} className={className}>
       <FrameHeader className="flex-row items-center gap-2">
         {icon && (
-          <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
+          <IconTile variant="elevated" size="sm" aria-hidden="true">
+            {icon}
+          </IconTile>
         )}
         <div className="flex min-w-0 flex-col">
           <FrameTitle>{title}</FrameTitle>
@@ -88,8 +91,10 @@ export function StatTile({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground [&_svg]:size-3.5">
-        {icon}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <IconTile variant="elevated" size="xs" aria-hidden="true">
+          {icon}
+        </IconTile>
         {label}
       </div>
       {block === null ? (

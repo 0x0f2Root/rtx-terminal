@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import {
   useLayoutEffect,
   useMemo,
@@ -52,18 +53,33 @@ export function entryKind(entry: RemoteDirEntry): string {
   return 'Special';
 }
 
-function EntryIcon({ entry }: { entry: RemoteDirEntry }) {
-  if (entry.type === 'directory')
-    return <Folder className="size-4 shrink-0 text-primary" />;
+function EntryGlyph({ entry }: { entry: RemoteDirEntry }) {
+  if (entry.type === 'directory') return <Folder />;
   if (entry.type === 'symlink')
     return entry.resolvedType === 'directory' ? (
-      <FolderSymlink className="size-4 shrink-0 text-primary" />
+      <FolderSymlink />
     ) : (
-      <FileSymlink className="size-4 shrink-0 text-muted-foreground" />
+      <FileSymlink />
     );
-  if (entry.type === 'other')
-    return <FileQuestion className="size-4 shrink-0 text-muted-foreground" />;
-  return <FileIcon className="size-4 shrink-0 text-muted-foreground" />;
+  if (entry.type === 'other') return <FileQuestion />;
+  return <FileIcon />;
+}
+
+/** Folders keep the primary tint that set them apart from files; the tile is the app's icon style. */
+function EntryIcon({ entry }: { entry: RemoteDirEntry }) {
+  const folder =
+    entry.type === 'directory' ||
+    (entry.type === 'symlink' && entry.resolvedType === 'directory');
+  return (
+    <IconTile
+      variant="elevated"
+      size="xs"
+      aria-hidden="true"
+      className={folder ? 'text-primary' : undefined}
+    >
+      <EntryGlyph entry={entry} />
+    </IconTile>
+  );
 }
 
 const columns: ColumnDef<DataGridFeatures, RemoteDirEntry>[] = [

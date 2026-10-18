@@ -1,9 +1,5 @@
 import { toast } from 'sonner';
-import {
-  DEFAULT_PREFERENCES,
-  type SessionProfile,
-  type SshHost,
-} from '@/shared/config';
+import { DEFAULT_PREFERENCES, type SshHost } from '@/shared/config';
 import { newId } from '@/lib/ids';
 import { destructiveReason } from '@/lib/dangerous';
 import { appData, updatePreferences, updateProfiles } from '@/state/app-data';
@@ -222,26 +218,6 @@ export function deleteHost(host: SshHost): void {
         updateProfiles((p) => ({ ...p, hosts: [...p.hosts, host] })),
     },
   });
-}
-
-export function openProfile(
-  profile: SessionProfile,
-  where: 'tab' | 'split-right' | 'split-down' = 'tab',
-): void {
-  const launch: LaunchSpec = {
-    profileId: profile.id,
-    label: profile.name,
-    ...(profile.shell ? { shell: profile.shell } : {}),
-    ...(profile.cwd ? { cwd: profile.cwd } : {}),
-  };
-  const pane = activePane();
-  if (where === 'tab' || !pane) openTab(launch);
-  else
-    splitPane(
-      pane.id,
-      where === 'split-right' ? 'horizontal' : 'vertical',
-      launch,
-    );
 }
 
 export function openSearch(): void {
@@ -693,15 +669,6 @@ export const ACTIONS: ActionDef[] = [
     scope: 'global',
     defaultShortcut: null,
     run: () => patchUi({ aboutOpen: true }),
-  },
-  {
-    id: 'session.newProfile',
-    title: 'New saved session',
-    group: 'App',
-    scope: 'global',
-    defaultShortcut: null,
-    keywords: ['profile'],
-    run: () => patchUi({ profileEditor: 'new', profileEditorDefaults: null }),
   },
 ];
 

@@ -424,6 +424,24 @@ html[data-app-theme='glass'] .bg-workspace {
   border-color: oklch(1 0.012 55 / 12%);
 }
 
+/*
+ * The inset shell, in every theme: the window frame takes the menu bar's chrome colour, and the
+ * sidebar is its own rounded, outlined panel beside the workspace card, the way glass shows it.
+ * The primitive only rounds the card, so without this the sidebar sat flat against the frame.
+ * Unlayered rules outrank the primitive's Tailwind utilities.
+ */
+[data-slot='sidebar-wrapper'] {
+  background: var(--chrome);
+}
+html [data-variant='inset'] [data-slot='sidebar-inner'] {
+  border-radius: var(--radius-xl);
+  box-shadow: inset 0 0 0 1px var(--sidebar-border);
+}
+/* On glass the frame stays clear so the wallpaper shows once, between the two glass panels. */
+html[data-app-theme='glass'] [data-slot='sidebar-wrapper'] {
+  background: transparent;
+}
+
 [data-app-theme='glass'] [data-theme-preview-pane] {
   background: var(--card);
   -webkit-backdrop-filter: blur(4px);

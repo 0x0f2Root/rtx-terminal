@@ -1,7 +1,8 @@
 import { useRef, type ReactNode } from 'react';
+import { IconTile } from '@/components/reui/icon-tile';
 import {
-  Check,
   Columns2,
+  CopyX,
   FolderTree,
   Gauge,
   Globe,
@@ -15,7 +16,11 @@ import { cn } from 'cn';
 import {
   ContextMenu,
   ContextMenuContent,
+  ContextMenuGroup,
   ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -34,6 +39,10 @@ import {
   type Tab,
 } from '@/state/workspace';
 import { closeTab, splitActive } from '../actions';
+import { MenuShortcut } from '../menu-shortcut';
+
+/** Radio value for an uncolored tab; a custom color has no preset to select. */
+const NO_COLOR = 'none';
 
 /**
  * Raised tab material after Obsidian UI's raised button: a solid fill, a 1px light top edge with a
@@ -60,7 +69,16 @@ export function raisedLook(tab: Tab, active: boolean): string {
 }
 
 /** Status dot, live title and pane count, shared by every place a tab is shown. */
-export function TabLabel({ tab, icon }: { tab: Tab; icon?: ReactNode }) {
+export function TabLabel({
+  tab,
+  icon,
+  tiled = false,
+}: {
+  tab: Tab;
+  icon?: ReactNode;
+  /** Puts the kind icon on an icon tile, as the sidebar rows do; the header strip is too short. */
+  tiled?: boolean;
+}) {
   const title = useWorkspace((s) => tabTitle(tab, s));
   const status = useWorkspace((s) => s.panes[tab.activePaneId]?.status);
   const remote = useWorkspace((s) => !!s.panes[tab.activePaneId]?.launch.ssh);
@@ -77,7 +95,16 @@ export function TabLabel({ tab, icon }: { tab: Tab; icon?: ReactNode }) {
           : null;
   return (
     <>
-      {kind ? (
+      {kind && tiled ? (
+        <IconTile
+          variant="elevated"
+          size="xs"
+          role="img"
+          aria-label={kind.label}
+        >
+          <kind.Icon aria-hidden />
+        </IconTile>
+      ) : kind ? (
         <kind.Icon
           className="relative size-3.5 shrink-0 opacity-70"
           aria-label={kind.label}
@@ -161,85 +188,98 @@ export function TabShell({
           onChange={(event) => setTabColor(tab.id, event.target.value)}
         />
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
-        <ContextMenuItem onClick={() => patchUi({ renameTabId: tab.id })}>
-          <Pencil />
-          Rename tab
-        </ContextMenuItem>
-        <ContextMenuSub>
-          <ContextMenuSubTrigger>
-            <Palette />
-            Tab color
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-48">
-            {TAB_COLORS.map((color) => (
-              <ContextMenuItem
-                key={color.value}
-                onClick={() => setTabColor(tab.id, color.value)}
+      <ContextMenuContent className="w-60">
+        <ContextMenuGroup>
+          <ContextMenuLabel className="truncate">{title}</ContextMenuLabel>
+          <ContextMenuItem onClick={() => patchUi({ renameTabId: tab.id })}>
+            <Pencil />
+            Rename tab
+            <MenuShortcut action="tab.rename" />
+          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Palette />
+              Tab color
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-48">
+              <ContextMenuRadioGroup
+                value={tab.color ?? NO_COLOR}
+                onValueChange={(value: string) =>
+                  setTabColor(tab.id, value === NO_COLOR ? null : value)
+                }
               >
-                <span
-                  className="size-3 shrink-0 rounded-full border border-border"
-                  style={{ background: color.value }}
-                />
-                {color.name}
-                {tab.color === color.value && <Check className="ml-auto" />}
+                {TAB_COLORS.map((color) => (
+                  <ContextMenuRadioItem key={color.value} value={color.value}>
+                    <span
+                      className="size-3 shrink-0 rounded-full border border-border"
+                      style={{ background: color.value }}
+                    />
+                    {color.name}
+                  </ContextMenuRadioItem>
+                ))}
+                <ContextMenuRadioItem value={NO_COLOR}>
+                  <X />
+                  No color
+                </ContextMenuRadioItem>
+              </ContextMenuRadioGroup>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() => {
+                  // Let the menu close before the native color picker takes focus.
+                  requestAnimationFrame(() => colorInput.current?.click());
+                }}
+              >
+                <Pipette />
+                Custom color…
               </ContextMenuItem>
-            ))}
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onClick={() => {
-                // Let the menu close before the native color picker takes focus.
-                requestAnimationFrame(() => colorInput.current?.click());
-              }}
-            >
-              <Pipette />
-              Custom color…
-              {tab.color && !TAB_COLORS.some((c) => c.value === tab.color) && (
-                <Check className="ml-auto" />
-              )}
-            </ContextMenuItem>
-            <ContextMenuItem
-              disabled={!tab.color}
-              onClick={() => setTabColor(tab.id, null)}
-            >
-              <X />
-              No color
-            </ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        </ContextMenuGroup>
         <ContextMenuSeparator />
-        <ContextMenuItem
-          onClick={() => {
-            activateTab(tab.id);
-            void splitActive('horizontal');
-          }}
-        >
-          <Columns2 />
-          Split right
-        </ContextMenuItem>
-        <ContextMenuItem
-          onClick={() => {
-            activateTab(tab.id);
-            void splitActive('vertical');
-          }}
-        >
-          <Rows2 />
-          Split down
-        </ContextMenuItem>
+        <ContextMenuGroup>
+          <ContextMenuLabel>Layout</ContextMenuLabel>
+          <ContextMenuItem
+            onClick={() => {
+              activateTab(tab.id);
+              void splitActive('horizontal');
+            }}
+          >
+            <Columns2 />
+            Split right
+            <MenuShortcut action="pane.splitRight" />
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              activateTab(tab.id);
+              void splitActive('vertical');
+            }}
+          >
+            <Rows2 />
+            Split down
+            <MenuShortcut action="pane.splitDown" />
+          </ContextMenuItem>
+        </ContextMenuGroup>
         <ContextMenuSeparator />
-        <ContextMenuItem
-          disabled={workspace.get().tabs.length < 2}
-          onClick={() => {
-            for (const other of workspace.get().tabs)
-              if (other.id !== tab.id) closeTab(other.id);
-          }}
-        >
-          Close other tabs
-        </ContextMenuItem>
-        <ContextMenuItem variant="destructive" onClick={() => closeTab(tab.id)}>
-          <X />
-          Close tab
-        </ContextMenuItem>
+        <ContextMenuGroup>
+          <ContextMenuItem
+            disabled={workspace.get().tabs.length < 2}
+            onClick={() => {
+              for (const other of workspace.get().tabs)
+                if (other.id !== tab.id) closeTab(other.id);
+            }}
+          >
+            <CopyX />
+            Close other tabs
+          </ContextMenuItem>
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => closeTab(tab.id)}
+          >
+            <X />
+            Close tab
+            <MenuShortcut action="tab.close" />
+          </ContextMenuItem>
+        </ContextMenuGroup>
       </ContextMenuContent>
     </ContextMenu>
   );

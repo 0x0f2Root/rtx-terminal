@@ -76,28 +76,6 @@ export type CommandsFile = {
   commands: SavedCommand[];
 };
 
-export type ProfileGroup = { id: string; name: string };
-
-/** A saved way to open a session. Only local profiles exist today; SSH profiles will add a kind. */
-export type SessionProfile = {
-  id: string;
-  kind: 'local';
-  name: string;
-  shell: string | null;
-  cwd: string | null;
-  groupId: string | null;
-  favorite: boolean;
-};
-
-export type RecentSession = {
-  id: string;
-  profileId: string | null;
-  name: string;
-  shell: string;
-  cwd: string | null;
-  openedAt: number;
-};
-
 export type SshAuthMethod = 'agent' | 'key' | 'password';
 
 /**
@@ -128,9 +106,6 @@ export type SshHost = {
 
 export type ProfilesFile = {
   version: number;
-  groups: ProfileGroup[];
-  profiles: SessionProfile[];
-  recent: RecentSession[];
   hosts: SshHost[];
 };
 
@@ -155,9 +130,6 @@ export const LIMITS = {
   path: 4096,
   commands: 5000,
   categories: 200,
-  profiles: 500,
-  groups: 200,
-  recent: 20,
   historyMax: 10000,
   hosts: 500,
   notes: 4000,
@@ -225,19 +197,6 @@ export const DEFAULT_COMMANDS: CommandsFile = {
 
 export const DEFAULT_PROFILES: ProfilesFile = {
   version: CONFIG_VERSION,
-  groups: [{ id: 'grp-local', name: 'Local' }],
-  profiles: [
-    {
-      id: 'prf-home',
-      kind: 'local',
-      name: 'Home',
-      shell: null,
-      cwd: null,
-      groupId: 'grp-local',
-      favorite: true,
-    },
-  ],
-  recent: [],
   hosts: [],
 };
 
@@ -448,43 +407,6 @@ export function parseCommandsFile(raw: unknown): CommandsFile {
   return { version: CONFIG_VERSION, categories, commands };
 }
 
-function parseGroup(item: unknown): ProfileGroup | null {
-  if (!isRecord(item) || !isValidId(item.id)) return null;
-  const name = str(item.name, LIMITS.name, '').trim();
-  return name ? { id: item.id, name } : null;
-}
-
-function parseProfile(item: unknown): SessionProfile | null {
-  if (!isRecord(item) || !isValidId(item.id) || item.kind !== 'local')
-    return null;
-  const name = str(item.name, LIMITS.name, '').trim();
-  if (!name) return null;
-  return {
-    id: item.id,
-    kind: 'local',
-    name,
-    shell: nullableStr(item.shell, LIMITS.path),
-    cwd: nullableStr(item.cwd, LIMITS.path),
-    groupId: isValidId(item.groupId) ? item.groupId : null,
-    favorite: bool(item.favorite, false),
-  };
-}
-
-function parseRecent(item: unknown): RecentSession | null {
-  if (!isRecord(item) || !isValidId(item.id)) return null;
-  const name = str(item.name, LIMITS.name, '').trim();
-  const shell = str(item.shell, LIMITS.path, '');
-  if (!name || !shell) return null;
-  return {
-    id: item.id,
-    profileId: isValidId(item.profileId) ? item.profileId : null,
-    name,
-    shell,
-    cwd: nullableStr(item.cwd, LIMITS.path),
-    openedAt: num(item.openedAt, 0, Number.MAX_SAFE_INTEGER, 0),
-  };
-}
-
 // --- SSH hosts ------------------------------------------------------------------
 
 /** Hostnames, IPv4 and IPv6 literals. No spaces, quotes or a leading dash. */
@@ -561,18 +483,8 @@ export function parseSshHost(item: unknown): SshHost | null {
 
 export function parseProfilesFile(raw: unknown): ProfilesFile {
   if (!isRecord(raw)) return structuredClone(DEFAULT_PROFILES);
-  const groups = uniqueById(list(raw.groups, LIMITS.groups, parseGroup));
-  const groupIds = new Set(groups.map((g) => g.id));
-  const profiles = uniqueById(
-    list(raw.profiles, LIMITS.profiles, parseProfile),
-  ).map((p) =>
-    p.groupId && !groupIds.has(p.groupId) ? { ...p, groupId: null } : p,
-  );
   return {
     version: CONFIG_VERSION,
-    groups,
-    profiles,
-    recent: uniqueById(list(raw.recent, LIMITS.recent, parseRecent)),
     hosts: uniqueById(list(raw.hosts, LIMITS.hosts, parseSshHost)),
   };
 }

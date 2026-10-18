@@ -1,10 +1,5 @@
 import type { SessionRuntimeInfo } from '@/shared/api';
-import type {
-  ProfileGroup,
-  SavedCommand,
-  SessionProfile,
-  SshHost,
-} from '@/shared/config';
+import type { SavedCommand, SshHost } from '@/shared/config';
 import { createStore, useStore } from '@/lib/create-store';
 
 /** Transient interface state: which overlay is open and what it is editing. Never persisted. */
@@ -47,10 +42,6 @@ export type UiState = {
   /** null: closed; 'new': creating; a command: editing it. */
   commandEditor: SavedCommand | 'new' | null;
   commandEditorDefaults: Partial<SavedCommand> | null;
-  profileEditor: SessionProfile | 'new' | null;
-  profileEditorDefaults: Partial<SessionProfile> | null;
-  /** null: closed; 'new': creating; a group: renaming it. */
-  groupEditor: ProfileGroup | 'new' | null;
   /** null: closed; 'new': creating; a host: editing it. */
   hostEditor: SshHost | 'new' | null;
   hostEditorDefaults: Partial<SshHost> | null;
@@ -85,9 +76,6 @@ export const ui = createStore<UiState>({
   historyOpen: false,
   commandEditor: null,
   commandEditorDefaults: null,
-  profileEditor: null,
-  profileEditorDefaults: null,
-  groupEditor: null,
   hostEditor: null,
   hostEditorDefaults: null,
   hostsOpen: false,
@@ -122,8 +110,6 @@ export function isOverlayOpen(state: UiState = ui.get()): boolean {
     state.commandsOpen ||
     state.historyOpen ||
     state.commandEditor !== null ||
-    state.profileEditor !== null ||
-    state.groupEditor !== null ||
     state.hostEditor !== null ||
     state.hostsOpen ||
     state.renameTabId !== null ||

@@ -5,12 +5,14 @@ import {
   Keyboard,
   Palette,
   RotateCcw,
+  Settings,
   SquareTerminal,
+  Type,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ShortcutRecorder } from '@/components/shortcut-recorder';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/reui/badge';
+import { IconTile } from '@/components/reui/icon-tile';
 import {
   Dialog,
   DialogContent,
@@ -25,8 +27,11 @@ import {
   FieldGroup,
   FieldLabel,
   FieldSeparator,
+  FieldTitle,
 } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
@@ -61,7 +66,7 @@ type Section = SettingsSection;
 
 const SECTIONS: { id: Section; label: string; icon: typeof Palette }[] = [
   { id: 'themes', label: 'Themes', icon: Palette },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'appearance', label: 'Appearance', icon: Type },
   { id: 'shell', label: 'Shell', icon: SquareTerminal },
   { id: 'keyboard', label: 'Keyboard', icon: Keyboard },
   { id: 'history', label: 'History', icon: History },
@@ -102,7 +107,7 @@ function ThemePreview({ theme }: { theme: AppThemeId }) {
     <div
       aria-hidden="true"
       data-app-theme={theme}
-      className="flex size-7 shrink-0 overflow-hidden border border-border bg-background"
+      className="flex h-9 w-12 shrink-0 overflow-hidden border border-border bg-background"
     >
       <span className="w-1.5 shrink-0 border-r border-sidebar-border bg-sidebar" />
       <span className="flex min-w-0 flex-1 flex-col">
@@ -131,36 +136,30 @@ function ThemesSection() {
           opaque.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        {APP_THEMES.map((theme) => {
-          const active = appTheme === theme.id;
-          return (
-            <Button
-              key={theme.id}
-              type="button"
-              variant={active ? 'secondary' : 'outline'}
-              size="lg"
-              className="w-full justify-between gap-2"
-              aria-pressed={active}
-              onClick={() =>
-                updatePreferences((p) => ({
-                  ...p,
-                  ui: { ...p.ui, theme: theme.id },
-                }))
-              }
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="truncate">{theme.name}</span>
-                {active && <Badge variant="primary-light">Active</Badge>}
-              </span>
+      <RadioGroup
+        value={appTheme}
+        onValueChange={(value) =>
+          updatePreferences((p) => ({
+            ...p,
+            ui: { ...p.ui, theme: value as AppThemeId },
+          }))
+        }
+        className="grid grid-cols-2 gap-2"
+        aria-label="App theme"
+      >
+        {APP_THEMES.map((theme) => (
+          <FieldLabel key={theme.id} htmlFor={`theme-${theme.id}`}>
+            <Field orientation="horizontal">
               <ThemePreview theme={theme.id} />
-            </Button>
-          );
-        })}
-      </div>
-      <FieldDescription>
-        {APP_THEMES.find((theme) => theme.id === appTheme)?.description}
-      </FieldDescription>
+              <FieldContent>
+                <FieldTitle>{theme.name}</FieldTitle>
+                <FieldDescription>{theme.description}</FieldDescription>
+              </FieldContent>
+              <RadioGroupItem value={theme.id} id={`theme-${theme.id}`} />
+            </Field>
+          </FieldLabel>
+        ))}
+      </RadioGroup>
       <Button
         type="button"
         variant="outline"
@@ -891,31 +890,36 @@ export function SettingsDialog() {
       onOpenChange={(next) => patchUi({ settingsOpen: next })}
     >
       <DialogContent className="flex h-[min(40rem,85vh)] flex-col gap-4 sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Changes apply immediately and are saved to ~/.config/rtx-terminal.
-          </DialogDescription>
+        <DialogHeader className="flex-row items-center gap-3">
+          <IconTile variant="elevated" size="default" aria-hidden="true">
+            <Settings />
+          </IconTile>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <DialogTitle>Settings</DialogTitle>
+            <DialogDescription>
+              Changes apply immediately and are saved to ~/.config/rtx-terminal.
+            </DialogDescription>
+          </div>
         </DialogHeader>
-        <div className="flex min-h-0 flex-1 gap-6">
-          <nav
-            className="flex w-40 shrink-0 flex-col gap-1"
-            aria-label="Settings sections"
-          >
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
-              <Button
-                type="button"
-                key={id}
-                variant={section === id ? 'secondary' : 'ghost'}
-                size="sm"
-                className="justify-start"
-                aria-current={section === id ? 'page' : undefined}
-                onClick={() => setSection(id)}
-              >
-                <Icon data-icon="inline-start" />
-                {label}
-              </Button>
-            ))}
+        <Tabs
+          value={section}
+          onValueChange={(value) => setSection(value as Section)}
+          orientation="vertical"
+          className="min-h-0 flex-1 gap-6"
+        >
+          <div className="flex w-44 shrink-0 flex-col gap-2">
+            <TabsList
+              variant="line"
+              className="w-full"
+              aria-label="Settings sections"
+            >
+              {SECTIONS.map(({ id, label, icon: Icon }) => (
+                <TabsTrigger key={id} value={id}>
+                  <Icon />
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
             <Button
               type="button"
               variant="ghost"
@@ -932,17 +936,27 @@ export function SettingsDialog() {
               <RotateCcw data-icon="inline-start" />
               Reset terminal
             </Button>
-          </nav>
-          <ScrollArea className="min-h-0 flex-1">
+          </div>
+          <ScrollArea className="min-h-0 min-w-0 flex-1">
             <div className="pr-4 pb-2">
-              {section === 'themes' && <ThemesSection />}
-              {section === 'appearance' && <AppearanceSection />}
-              {section === 'shell' && <ShellSection />}
-              {section === 'keyboard' && <KeyboardSection />}
-              {section === 'history' && <HistorySection />}
+              <TabsContent value="themes">
+                <ThemesSection />
+              </TabsContent>
+              <TabsContent value="appearance">
+                <AppearanceSection />
+              </TabsContent>
+              <TabsContent value="shell">
+                <ShellSection />
+              </TabsContent>
+              <TabsContent value="keyboard">
+                <KeyboardSection />
+              </TabsContent>
+              <TabsContent value="history">
+                <HistorySection />
+              </TabsContent>
             </div>
           </ScrollArea>
-        </div>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

@@ -9,19 +9,27 @@ import {
 } from '@/components/ui/dialog';
 import type { ConflictResolution } from '@/shared/remote';
 
+/** How many clashing names the dialog lists before it summarizes the rest. */
+const LISTED = 5;
+
 /**
- * Asks how name collisions in a transfer batch are handled, before anything is written. The safe
- * choice (keep both) is the default action; overwriting is offered but styled as destructive.
+ * Asks how name collisions are handled, and only opens when some names are already taken. The
+ * safe choice (keep both) is the default action; overwriting is offered but styled as destructive.
+ * Files that do not clash transfer either way.
  */
 export function ConflictDialog({
   open,
-  count,
+  total,
+  conflicts,
   direction,
   onChoose,
   onOpenChange,
 }: {
   open: boolean;
-  count: number;
+  /** Every file in the batch. */
+  total: number;
+  /** The names that already exist at the destination. */
+  conflicts: string[];
   direction: 'upload' | 'download';
   onChoose: (resolution: ConflictResolution) => void;
   onOpenChange: (open: boolean) => void;
@@ -30,20 +38,33 @@ export function ConflictDialog({
     onChoose(resolution);
     onOpenChange(false);
   };
-  const items = `${count} item${count === 1 ? '' : 's'}`;
+  const count = conflicts.length;
+  const where = direction === 'upload' ? 'on the server' : 'in that folder';
+  const summary =
+    count === total
+      ? `${count === 1 ? 'This file already exists' : `All ${count} files already exist`} ${where}.`
+      : `${count} of ${total} files already exist ${where}. The others transfer as they are.`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {direction === 'upload' ? `Upload ${items}` : `Download ${items}`}
+            {count === 1 ? 'Replace existing file?' : 'Replace existing files?'}
           </DialogTitle>
-          <DialogDescription>
-            {direction === 'upload'
-              ? 'When a file with the same name already exists on the server:'
-              : 'When a file with the same name already exists in the chosen folder:'}
-          </DialogDescription>
+          <DialogDescription>{summary}</DialogDescription>
         </DialogHeader>
+        <ul className="flex flex-col gap-1 font-mono text-xs">
+          {conflicts.slice(0, LISTED).map((name) => (
+            <li key={name} className="truncate">
+              {name}
+            </li>
+          ))}
+          {count > LISTED && (
+            <li className="font-sans text-muted-foreground">
+              and {count - LISTED} more
+            </li>
+          )}
+        </ul>
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
           <li>
             <span className="font-medium text-foreground">Keep both</span> saves

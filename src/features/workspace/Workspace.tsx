@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import { Plus, SquareTerminal } from 'lucide-react';
 import { ShortcutKeys } from '@/components/shortcut-keys';
 import { Button } from '@/components/ui/button';
@@ -27,8 +28,10 @@ export function Workspace() {
       <div className="flex min-h-0 flex-1 items-center justify-center bg-workspace">
         <Empty>
           <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <SquareTerminal />
+            <EmptyMedia>
+              <IconTile variant="elevated" size="lg" aria-hidden="true">
+                <SquareTerminal />
+              </IconTile>
             </EmptyMedia>
             <EmptyTitle>No terminals open</EmptyTitle>
             <EmptyDescription>

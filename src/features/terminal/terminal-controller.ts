@@ -102,6 +102,8 @@ export class TerminalController {
   private readonly disposables: IDisposable[] = [];
   private readonly resizeObserver: ResizeObserver;
   private fitFrame = 0;
+  private ptyResizeTimer: ReturnType<typeof setTimeout> | null = null;
+  private dprQuery: MediaQueryList | null = null;
   private opened = false;
   private starting = false;
   private sshRequestId: string | null = null;
@@ -150,11 +152,7 @@ export class TerminalController {
         (data) =>
           this.sessionId && window.rtx.terminal.write(this.sessionId, data),
       ),
-      this.term.onResize(
-        ({ cols, rows }) =>
-          this.sessionId &&
-          window.rtx.terminal.resize(this.sessionId, cols, rows),
-      ),
+      this.term.onResize(() => this.schedulePtyResize()),
       this.term.onTitleChange((title) =>
         updatePane(this.paneId, { title: title.slice(0, 120) || null }),
       ),
@@ -172,6 +170,45 @@ export class TerminalController {
       }),
     );
     this.resizeObserver = new ResizeObserver(() => this.scheduleFit());
+    // Cell metrics change when a web font finishes loading or the screen scale changes, and
+    // neither resizes the host, so the observer alone would leave the grid measured wrong.
+    document.fonts.addEventListener('loadingdone', this.onMetricsChange);
+    void document.fonts.ready.then(this.onMetricsChange);
+    this.watchPixelRatio();
+  }
+
+  private readonly onMetricsChange = (): void => this.scheduleFit();
+
+  private readonly onPixelRatioChange = (): void => {
+    this.watchPixelRatio();
+    this.scheduleFit();
+  };
+
+  /** A resolution query matches one ratio only, so it is re-armed after every change. */
+  private watchPixelRatio(): void {
+    this.dprQuery?.removeEventListener('change', this.onPixelRatioChange);
+    if (this.disposed) return;
+    this.dprQuery = window.matchMedia(
+      `(resolution: ${window.devicePixelRatio}dppx)`,
+    );
+    this.dprQuery.addEventListener('change', this.onPixelRatioChange);
+  }
+
+  /**
+   * xterm reflows on every frame of a drag, but each PTY resize makes the shell redraw its
+   * prompt; sending only the settled size avoids a trail of half-drawn prompts.
+   */
+  private schedulePtyResize(): void {
+    if (this.ptyResizeTimer) clearTimeout(this.ptyResizeTimer);
+    this.ptyResizeTimer = setTimeout(() => {
+      this.ptyResizeTimer = null;
+      if (this.sessionId && !this.disposed)
+        window.rtx.terminal.resize(
+          this.sessionId,
+          this.term.cols,
+          this.term.rows,
+        );
+    }, 60);
   }
 
   get session(): string | null {
@@ -656,6 +693,7 @@ export class TerminalController {
       this.webgl?.dispose();
       this.webgl = null;
       updatePane(this.paneId, { renderer: 'dom' });
+      this.scheduleFit();
       return;
     }
     if (this.webgl || !this.opened) return;
@@ -667,10 +705,13 @@ export class TerminalController {
         addon.dispose();
         if (this.webgl === addon) this.webgl = null;
         updatePane(this.paneId, { renderer: 'dom' });
+        this.scheduleFit();
       });
       this.term.loadAddon(addon);
       this.webgl = addon;
       updatePane(this.paneId, { renderer: 'webgl' });
+      // The GPU renderer measures cells slightly differently from the DOM one.
+      this.scheduleFit();
     } catch {
       this.webgl = null;
       updatePane(this.paneId, { renderer: 'dom' });
@@ -688,7 +729,10 @@ export class TerminalController {
     this.cancelConnect();
     this.disposed = true;
     if (this.fitFrame) cancelAnimationFrame(this.fitFrame);
+    if (this.ptyResizeTimer) clearTimeout(this.ptyResizeTimer);
     this.resizeObserver.disconnect();
+    document.fonts.removeEventListener('loadingdone', this.onMetricsChange);
+    this.dprQuery?.removeEventListener('change', this.onPixelRatioChange);
     for (const disposable of this.disposables) disposable.dispose();
     if (this.sessionId) {
       this.sink.unbind(this.sessionId);

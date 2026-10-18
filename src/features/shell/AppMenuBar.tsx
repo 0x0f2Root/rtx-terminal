@@ -24,7 +24,6 @@ import {
   connectHost,
   openHostFiles,
   openHostMonitor,
-  openProfile,
   runAction,
   shortcutFor,
 } from '../actions';
@@ -108,7 +107,6 @@ function openSettings(section: 'appearance' | 'keyboard' | 'shell') {
  * context are disabled rather than left clickable.
  */
 export function AppMenuBar() {
-  const profiles = useAppData((s) => s.profiles.profiles);
   const hosts = useAppData((s) => s.profiles.hosts);
   const pane = useWorkspace((s) => activePane(s));
   const paneCount = useWorkspace((s) => {
@@ -134,23 +132,6 @@ export function AppMenuBar() {
       <Menubar className="min-w-max border-0">
         <MenuGroup label="File">
           <ActionItem action="terminal.new">New Terminal</ActionItem>
-          <MenubarSub>
-            <MenubarSubTrigger>New Session</MenubarSubTrigger>
-            <MenubarSubContent className="w-56">
-              {profiles.map((profile) => (
-                <MenubarItem
-                  key={profile.id}
-                  onClick={() => openProfile(profile)}
-                >
-                  {profile.name}
-                </MenubarItem>
-              ))}
-              {profiles.length > 0 && <MenubarSeparator />}
-              <ActionItem action="session.newProfile">
-                New Saved Session…
-              </ActionItem>
-            </MenubarSubContent>
-          </MenubarSub>
           <MenubarSeparator />
           <ActionItem action="tab.close" disabled={!hasTab}>
             Close Tab

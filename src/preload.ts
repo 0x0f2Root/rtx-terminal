@@ -51,6 +51,8 @@ const api: RtxApi = {
       ipcRenderer.invoke(IPC.systemWriteClipboard, text),
     pickDirectory: () => ipcRenderer.invoke(IPC.systemPickDirectory),
     pickFiles: () => ipcRenderer.invoke(IPC.systemPickFiles),
+    existingNames: (dir, names) =>
+      ipcRenderer.invoke(IPC.systemExistingNames, dir, names),
     appInfo: () => ipcRenderer.invoke(IPC.systemAppInfo),
     toggleFullScreen: () => ipcRenderer.invoke(IPC.systemToggleFullScreen),
     quit: () => ipcRenderer.invoke(IPC.systemQuit),

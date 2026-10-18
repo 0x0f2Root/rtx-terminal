@@ -18,7 +18,6 @@ export type PaneStatus = 'starting' | 'running' | 'exited' | 'error';
 export type LaunchSpec = {
   shell?: string;
   cwd?: string;
-  profileId?: string | null;
   label?: string;
   /** Open a saved SSH host instead of a local shell. */
   ssh?: { hostId: string };

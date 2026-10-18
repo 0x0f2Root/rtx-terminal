@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import {
   useCallback,
   useEffect,
@@ -119,11 +120,16 @@ type ConnState =
   | { status: 'error'; error: string }
   | { status: 'disconnected'; reason: string | null };
 
-type PendingTransfer = {
+type TransferSpec = {
   direction: 'upload' | 'download';
   sources: string[];
   destinationDir: string;
 };
+
+/** A transfer waiting on the conflict question; `conflicts` are the names already taken. */
+type PendingTransfer = TransferSpec & { conflicts: string[] };
+
+const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
 
 const EMPTY_SELECTION: Selection = { selected: new Set(), anchor: null };
 const DEFAULT_SORTING: SortingState = [{ id: 'name', desc: false }];
@@ -402,43 +408,65 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
     else toast.error('Could not delete.', { description: result.error });
   }, [connectionId, deleteTarget, load]);
 
-  const startUpload = useCallback(async () => {
-    const files = await window.rtx.system.pickFiles();
-    if (files.length > 0)
-      setPending({
-        direction: 'upload',
-        sources: files,
-        destinationDir: pathRef.current,
-      });
-  }, []);
-
-  /** Downloads exactly `names`, never a stale selection captured earlier. */
-  const startDownload = useCallback(async (names: string[]) => {
-    if (names.length === 0) return;
-    const dir = await window.rtx.system.pickDirectory();
-    if (!dir) return;
-    setPending({
-      direction: 'download',
-      sources: names.map((name) => joinPath(pathRef.current, name)),
-      destinationDir: dir,
-    });
-  }, []);
-
   const runTransfer = useCallback(
-    async (conflict: ConflictResolution) => {
-      if (!connectionId || !pending) return;
+    async (spec: TransferSpec, conflict: ConflictResolution) => {
+      if (!connectionId) return;
       const result = await window.rtx.files.transfer({
         connectionId,
         conflict,
-        ...pending,
+        ...spec,
       });
-      setPending(null);
       if (!result.ok)
         toast.error('The transfer could not start.', {
           description: result.error,
         });
     },
-    [connectionId, pending],
+    [connectionId],
+  );
+
+  /**
+   * Starts at once when no name is taken, and asks only about real clashes otherwise. "Keep both"
+   * is the no-clash choice too: if a name appears in the meantime, nothing is overwritten.
+   */
+  const queueTransfer = useCallback(
+    (spec: TransferSpec, conflicts: string[]) => {
+      if (conflicts.length === 0) void runTransfer(spec, 'rename');
+      else setPending({ ...spec, conflicts });
+    },
+    [runTransfer],
+  );
+
+  const startUpload = useCallback(async () => {
+    const files = await window.rtx.system.pickFiles();
+    if (files.length === 0) return;
+    // The open folder's listing is the destination, so it already says what is taken.
+    queueTransfer(
+      { direction: 'upload', sources: files, destinationDir: pathRef.current },
+      files.map(baseName).filter((name) => byName.has(name)),
+    );
+  }, [byName, queueTransfer]);
+
+  /** Downloads exactly `names`, never a stale selection captured earlier. */
+  const startDownload = useCallback(
+    async (names: string[]) => {
+      if (names.length === 0) return;
+      const dir = await window.rtx.system.pickDirectory();
+      if (!dir) return;
+      // If the check fails, claim no clashes rather than invent them: the transfer then keeps
+      // both copies of anything that does exist, so nothing is overwritten.
+      const taken = await window.rtx.system
+        .existingNames(dir, names)
+        .catch((): string[] => []);
+      queueTransfer(
+        {
+          direction: 'download',
+          sources: names.map((name) => joinPath(pathRef.current, name)),
+          destinationDir: dir,
+        },
+        taken,
+      );
+    },
+    [queueTransfer],
   );
 
   const copyPath = useCallback((name: string) => {
@@ -568,8 +596,10 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
       <PaneShell>
         <Empty className="flex-1">
           <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Unplug />
+            <EmptyMedia>
+              <IconTile variant="elevated" size="lg" aria-hidden="true">
+                <Unplug />
+              </IconTile>
             </EmptyMedia>
             <EmptyTitle>
               {conn.status === 'error'
@@ -789,8 +819,10 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
       {listError ? (
         <Empty className="flex-1">
           <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <FolderOpen />
+            <EmptyMedia>
+              <IconTile variant="elevated" size="lg" aria-hidden="true">
+                <FolderOpen />
+              </IconTile>
             </EmptyMedia>
             <EmptyTitle>This folder could not be opened</EmptyTitle>
             <EmptyDescription>{listError}</EmptyDescription>
@@ -953,9 +985,15 @@ export function FilesPane({ paneId }: { paneId: string; tabActive: boolean }) {
       />
       <ConflictDialog
         open={pending !== null}
-        count={pending?.sources.length ?? 0}
+        total={pending?.sources.length ?? 0}
+        conflicts={pending?.conflicts ?? []}
         direction={pending?.direction ?? 'upload'}
-        onChoose={(resolution) => void runTransfer(resolution)}
+        onChoose={(resolution) => {
+          if (!pending) return;
+          const { conflicts: _conflicts, ...spec } = pending;
+          setPending(null);
+          void runTransfer(spec, resolution);
+        }}
         onOpenChange={(open) => !open && setPending(null)}
       />
 

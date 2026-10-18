@@ -20,6 +20,7 @@ import {
   type Preferences,
 } from '../shared/config';
 import {
+  absolutePath,
   connectionId,
   createRequest,
   dimension,
@@ -38,6 +39,9 @@ import { listShells } from './shells';
 import type { SecretStore } from './ssh/secrets';
 import { listSshConfigAliases } from './ssh/ssh-config';
 import type { HostKeyPrompts } from './ssh/ssh-sessions';
+
+/** Matches the transfer request's source limit. */
+const MAX_NAME_CHECKS = 2000;
 import type { RemoteManager } from './ssh/remote-manager';
 import type { SessionManager } from './sessions/session-manager';
 import type { Store } from './store';
@@ -286,6 +290,9 @@ export function registerIpc(context: IpcContext): void {
     app.quit();
   });
 
+  // Directories the user chose in the native dialog; existingNames answers only for these.
+  const pickedDirectories = new Set<string>();
+
   handle(IPC.systemPickDirectory, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     const options = {
@@ -295,10 +302,30 @@ export function registerIpc(context: IpcContext): void {
     const result = window
       ? await dialog.showOpenDialog(window, options)
       : await dialog.showOpenDialog(options);
-    return result.canceled || result.filePaths.length === 0
-      ? null
-      : result.filePaths[0];
+    if (result.canceled || result.filePaths.length === 0) return null;
+    pickedDirectories.add(result.filePaths[0]);
+    return result.filePaths[0];
   });
+
+  handle(
+    IPC.systemExistingNames,
+    async (_event, dir: unknown, names: unknown) => {
+      const directory = absolutePath(dir);
+      if (!pickedDirectories.has(directory)) fail('Unknown directory.');
+      if (!Array.isArray(names) || names.length > MAX_NAME_CHECKS)
+        fail('Invalid names.');
+      const checked = names.map((name) => remoteName(name));
+      const found = await Promise.all(
+        checked.map((name) =>
+          fs
+            .lstat(path.join(directory, name))
+            .then(() => name)
+            .catch(() => null),
+        ),
+      );
+      return found.filter((name): name is string => name !== null);
+    },
+  );
 
   handle(IPC.systemPickFiles, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);

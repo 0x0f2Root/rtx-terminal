@@ -2,12 +2,18 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   ChevronRight,
+  ChevronsUpDown,
+  Columns2,
   Copy,
-  FolderPlus,
+  Folder,
+  FolderInput,
   FolderTree,
   Gauge,
+  History,
+  Info,
   Pencil,
   Play,
+  Rows2,
   Plug,
   Plus,
   Search,
@@ -18,7 +24,7 @@ import {
   Trash2,
   Unplug,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { IconTile } from '@/components/reui/icon-tile';
 import {
   Collapsible,
   CollapsibleContent,
@@ -27,6 +33,10 @@ import {
 import {
   ContextMenu,
   ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuSub,
@@ -34,6 +44,15 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Sidebar,
   SidebarContent,
@@ -46,13 +65,16 @@ import {
   SidebarInput,
   SidebarMenu,
   SidebarMenuAction,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarSeparator,
 } from '@/components/ui/sidebar';
-import type { SavedCommand, SessionProfile, SshHost } from '@/shared/config';
+import type { SavedCommand, SshHost } from '@/shared/config';
 import appIcon from '../../../assets/icon.svg';
 import { newId } from '@/lib/ids';
-import { useAppData, updateCommands, updateProfiles } from '@/state/app-data';
+import { useAppData, updateCommands } from '@/state/app-data';
 import { cn } from 'cn';
 import { patchUi } from '@/state/ui';
 import { activateTab, tabTitle, useWorkspace } from '@/state/workspace';
@@ -67,11 +89,13 @@ import {
   duplicateHost,
   openHostFiles,
   openHostMonitor,
-  openProfile,
   runCommand,
 } from '../actions';
 import { hostStatus, hostTarget, matchesHost } from '../ssh/host-utils';
 import { RAISED, raisedLook, TabLabel, TabShell } from './raised-tab';
+
+/** Radio value for a command without a category in the "Move to category" menu. */
+const UNCATEGORIZED = '__none';
 
 function matches(
   query: string,
@@ -110,108 +134,18 @@ function Section({
   );
 }
 
-function EmptyRow({ children }: { children: ReactNode }) {
+/** A row's leading icon on a raised tile (ReUI icon-tile, elevated), the app's one icon style. */
+function RowIcon({ children }: { children: ReactNode }) {
   return (
-    <p className="px-2 py-1.5 text-xs text-muted-foreground">{children}</p>
+    <IconTile variant="elevated" size="xs" aria-hidden="true">
+      {children}
+    </IconTile>
   );
 }
 
-function ProfileItem({ profile }: { profile: SessionProfile }) {
-  const groups = useAppData((s) => s.profiles.groups);
+function EmptyRow({ children }: { children: ReactNode }) {
   return (
-    <SidebarMenuItem>
-      <ContextMenu>
-        <ContextMenuTrigger
-          render={
-            <SidebarMenuButton
-              tooltip={profile.cwd ?? undefined}
-              onClick={() => openProfile(profile)}
-              aria-label={`Open ${profile.name}`}
-            />
-          }
-        >
-          <SquareTerminal />
-          <span className="truncate">{profile.name}</span>
-        </ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
-          <ContextMenuItem onClick={() => openProfile(profile)}>
-            Open in new tab
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => openProfile(profile, 'split-right')}>
-            Open split right
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => openProfile(profile, 'split-down')}>
-            Open split down
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() =>
-              patchUi({ profileEditor: profile, profileEditorDefaults: null })
-            }
-          >
-            <Pencil />
-            Edit…
-          </ContextMenuItem>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>Move to group</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {groups.map((group) => (
-                <ContextMenuItem
-                  key={group.id}
-                  disabled={group.id === profile.groupId}
-                  onClick={() =>
-                    updateProfiles((p) => ({
-                      ...p,
-                      profiles: p.profiles.map((x) =>
-                        x.id === profile.id ? { ...x, groupId: group.id } : x,
-                      ),
-                    }))
-                  }
-                >
-                  {group.name}
-                </ContextMenuItem>
-              ))}
-              <ContextMenuItem
-                disabled={profile.groupId === null}
-                onClick={() =>
-                  updateProfiles((p) => ({
-                    ...p,
-                    profiles: p.profiles.map((x) =>
-                      x.id === profile.id ? { ...x, groupId: null } : x,
-                    ),
-                  }))
-                }
-              >
-                No group
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            variant="destructive"
-            onClick={() => {
-              updateProfiles((p) => ({
-                ...p,
-                profiles: p.profiles.filter((x) => x.id !== profile.id),
-              }));
-              toast(`Deleted "${profile.name}".`, {
-                action: {
-                  label: 'Undo',
-                  onClick: () =>
-                    updateProfiles((p) => ({
-                      ...p,
-                      profiles: [...p.profiles, profile],
-                    })),
-                },
-              });
-            }}
-          >
-            <Trash2 />
-            Delete
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    </SidebarMenuItem>
+    <p className="px-2 py-1.5 text-xs text-muted-foreground">{children}</p>
   );
 }
 
@@ -263,8 +197,11 @@ function OpenTerminals({ query }: { query: string }) {
               >
                 <TabLabel
                   tab={tab}
+                  tiled
                   icon={
-                    <SquareTerminal className="relative size-4 shrink-0 opacity-80" />
+                    <RowIcon>
+                      <SquareTerminal />
+                    </RowIcon>
                   }
                 />
               </button>
@@ -273,101 +210,6 @@ function OpenTerminals({ query }: { query: string }) {
         ))}
       </SidebarMenu>
     </Section>
-  );
-}
-
-function SessionGroups({ query }: { query: string }) {
-  const { groups, profiles } = useAppData((s) => s.profiles);
-  const ungrouped = profiles.filter(
-    (p) => p.groupId === null && matches(query, p.name, p.cwd),
-  );
-  return (
-    <>
-      {groups.map((group) => {
-        const items = profiles.filter(
-          (p) =>
-            p.groupId === group.id && matches(query, p.name, p.cwd, group.name),
-        );
-        return (
-          <ContextMenu key={group.id}>
-            <ContextMenuTrigger>
-              <Section
-                label={group.name}
-                action={
-                  <SidebarGroupAction
-                    aria-label={`New session in ${group.name}`}
-                    onClick={() =>
-                      patchUi({
-                        profileEditor: 'new',
-                        profileEditorDefaults: { groupId: group.id },
-                      })
-                    }
-                  >
-                    <Plus />
-                  </SidebarGroupAction>
-                }
-              >
-                <SidebarMenu>
-                  {items.length === 0 && (
-                    <EmptyRow>
-                      {query ? 'No matches.' : 'No sessions in this group.'}
-                    </EmptyRow>
-                  )}
-                  {items.map((profile) => (
-                    <ProfileItem key={profile.id} profile={profile} />
-                  ))}
-                </SidebarMenu>
-              </Section>
-            </ContextMenuTrigger>
-            <ContextMenuContent className="w-52">
-              <ContextMenuItem
-                onClick={() =>
-                  patchUi({
-                    profileEditor: 'new',
-                    profileEditorDefaults: { groupId: group.id },
-                  })
-                }
-              >
-                <Plus />
-                New session in group
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => patchUi({ groupEditor: group })}>
-                <Pencil />
-                Rename group
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                variant="destructive"
-                onClick={() => {
-                  updateProfiles((p) => ({
-                    ...p,
-                    groups: p.groups.filter((g) => g.id !== group.id),
-                    profiles: p.profiles.map((x) =>
-                      x.groupId === group.id ? { ...x, groupId: null } : x,
-                    ),
-                  }));
-                  toast(
-                    `Deleted group "${group.name}". Its sessions moved to Other.`,
-                  );
-                }}
-              >
-                <Trash2 />
-                Delete group
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-        );
-      })}
-      {ungrouped.length > 0 && (
-        <Section label="Other">
-          <SidebarMenu>
-            {ungrouped.map((profile) => (
-              <ProfileItem key={profile.id} profile={profile} />
-            ))}
-          </SidebarMenu>
-        </Section>
-      )}
-    </>
   );
 }
 
@@ -385,67 +227,79 @@ function CommandItem({ command }: { command: SavedCommand }) {
             />
           }
         >
-          <TextCursorInput />
+          <RowIcon>
+            <TextCursorInput />
+          </RowIcon>
           <span className="truncate">{command.name}</span>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
-          <ContextMenuItem onClick={() => runCommand(command.command, 'saved')}>
-            <Play />
-            Run in active terminal
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => insertCommand(command.command)}>
-            <TextCursorInput />
-            Insert without running
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => copyText(command.command)}>
-            <Copy />
-            Copy command
-          </ContextMenuItem>
+        <ContextMenuContent className="w-60">
+          <ContextMenuGroup>
+            <ContextMenuLabel className="truncate">
+              {command.name}
+            </ContextMenuLabel>
+            <ContextMenuItem
+              onClick={() => runCommand(command.command, 'saved')}
+            >
+              <Play />
+              Run in active terminal
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => insertCommand(command.command)}>
+              <TextCursorInput />
+              Insert without running
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => copyText(command.command)}>
+              <Copy />
+              Copy command
+            </ContextMenuItem>
+          </ContextMenuGroup>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() =>
-              patchUi({ commandEditor: command, commandEditorDefaults: null })
-            }
-          >
-            <Pencil />
-            Edit…
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() =>
-              updateCommands((c) => ({
-                ...c,
-                commands: [
-                  ...c.commands,
-                  {
-                    ...command,
-                    id: newId('cmd'),
-                    name: `${command.name} copy`,
-                    shortcut: null,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                  },
-                ],
-              }))
-            }
-          >
-            <Copy />
-            Duplicate
-          </ContextMenuItem>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>Move to category</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {categories.map((category) => (
-                <ContextMenuItem
-                  key={category.id}
-                  disabled={category.id === command.categoryId}
-                  onClick={() =>
+          <ContextMenuGroup>
+            <ContextMenuItem
+              onClick={() =>
+                patchUi({ commandEditor: command, commandEditorDefaults: null })
+              }
+            >
+              <Pencil />
+              Edit…
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() =>
+                updateCommands((c) => ({
+                  ...c,
+                  commands: [
+                    ...c.commands,
+                    {
+                      ...command,
+                      id: newId('cmd'),
+                      name: `${command.name} copy`,
+                      shortcut: null,
+                      createdAt: Date.now(),
+                      updatedAt: Date.now(),
+                    },
+                  ],
+                }))
+              }
+            >
+              <Copy />
+              Duplicate
+            </ContextMenuItem>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <FolderInput />
+                Move to category
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-52">
+                <ContextMenuRadioGroup
+                  value={command.categoryId ?? UNCATEGORIZED}
+                  onValueChange={(value: string) =>
                     updateCommands((c) => ({
                       ...c,
                       commands: c.commands.map((x) =>
                         x.id === command.id
                           ? {
                               ...x,
-                              categoryId: category.id,
+                              categoryId:
+                                value === UNCATEGORIZED ? null : value,
                               updatedAt: Date.now(),
                             }
                           : x,
@@ -453,49 +307,43 @@ function CommandItem({ command }: { command: SavedCommand }) {
                     }))
                   }
                 >
-                  {category.name}
-                </ContextMenuItem>
-              ))}
-              <ContextMenuItem
-                disabled={command.categoryId === null}
-                onClick={() =>
-                  updateCommands((c) => ({
-                    ...c,
-                    commands: c.commands.map((x) =>
-                      x.id === command.id
-                        ? { ...x, categoryId: null, updatedAt: Date.now() }
-                        : x,
-                    ),
-                  }))
-                }
-              >
-                Uncategorized
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+                  {categories.map((category) => (
+                    <ContextMenuRadioItem key={category.id} value={category.id}>
+                      <span className="truncate">{category.name}</span>
+                    </ContextMenuRadioItem>
+                  ))}
+                  <ContextMenuRadioItem value={UNCATEGORIZED}>
+                    Uncategorized
+                  </ContextMenuRadioItem>
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          </ContextMenuGroup>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            variant="destructive"
-            onClick={() => {
-              updateCommands((c) => ({
-                ...c,
-                commands: c.commands.filter((x) => x.id !== command.id),
-              }));
-              toast(`Deleted "${command.name}".`, {
-                action: {
-                  label: 'Undo',
-                  onClick: () =>
-                    updateCommands((c) => ({
-                      ...c,
-                      commands: [...c.commands, command],
-                    })),
-                },
-              });
-            }}
-          >
-            <Trash2 />
-            Delete
-          </ContextMenuItem>
+          <ContextMenuGroup>
+            <ContextMenuItem
+              variant="destructive"
+              onClick={() => {
+                updateCommands((c) => ({
+                  ...c,
+                  commands: c.commands.filter((x) => x.id !== command.id),
+                }));
+                toast(`Deleted "${command.name}".`, {
+                  action: {
+                    label: 'Undo',
+                    onClick: () =>
+                      updateCommands((c) => ({
+                        ...c,
+                        commands: [...c.commands, command],
+                      })),
+                  },
+                });
+              }}
+            >
+              <Trash2 />
+              Delete
+            </ContextMenuItem>
+          </ContextMenuGroup>
         </ContextMenuContent>
       </ContextMenu>
       <SidebarMenuAction
@@ -552,18 +400,31 @@ function SavedCommands({ query }: { query: string }) {
             : 'No matches.'}
         </EmptyRow>
       )}
-      {groups.map((group) => (
-        <div key={group.id} className="flex flex-col">
-          <p className="px-2 pt-2 pb-1 text-xs text-muted-foreground">
-            {group.name}
-          </p>
-          <SidebarMenu>
-            {group.items.map((command) => (
-              <CommandItem key={command.id} command={command} />
-            ))}
-          </SidebarMenu>
-        </div>
-      ))}
+      <SidebarMenu>
+        {groups.map((group) => (
+          // Remounts when a filter starts or clears, so matches open and the full list folds away.
+          <Collapsible
+            key={`${group.id}:${query ? 'filtered' : 'all'}`}
+            defaultOpen={Boolean(query) || groups.length === 1}
+            render={<SidebarMenuItem />}
+          >
+            <CollapsibleTrigger render={<SidebarMenuButton />}>
+              <RowIcon>
+                <Folder />
+              </RowIcon>
+              <span className="truncate">{group.name}</span>
+            </CollapsibleTrigger>
+            <SidebarMenuBadge>{group.items.length}</SidebarMenuBadge>
+            <CollapsibleContent>
+              <SidebarMenuSub>
+                {group.items.map((command) => (
+                  <CommandItem key={command.id} command={command} />
+                ))}
+              </SidebarMenuSub>
+            </CollapsibleContent>
+          </Collapsible>
+        ))}
+      </SidebarMenu>
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
@@ -593,7 +454,9 @@ function HostItem({ host }: { host: SshHost }) {
             />
           }
         >
-          <Server />
+          <RowIcon>
+            <Server />
+          </RowIcon>
           <span className="truncate">{host.name}</span>
           {status && (
             <span
@@ -606,54 +469,68 @@ function HostItem({ host }: { host: SshHost }) {
             />
           )}
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
-          <ContextMenuItem onClick={() => connectHost(host)}>
-            <Plug />
-            Connect in new tab
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => connectHost(host, 'split-right')}>
-            Connect in split right
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => connectHost(host, 'split-down')}>
-            Connect in split down
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={status !== 'connected'}
-            onClick={() => disconnectHost(host.id)}
-          >
-            <Unplug />
-            Disconnect
-          </ContextMenuItem>
+        <ContextMenuContent className="w-60">
+          <ContextMenuGroup>
+            <ContextMenuLabel className="truncate">
+              {host.name}
+            </ContextMenuLabel>
+            <ContextMenuItem onClick={() => connectHost(host)}>
+              <Plug />
+              Connect in new tab
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => connectHost(host, 'split-right')}>
+              <Columns2 />
+              Connect in split right
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => connectHost(host, 'split-down')}>
+              <Rows2 />
+              Connect in split down
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={status !== 'connected'}
+              onClick={() => disconnectHost(host.id)}
+            >
+              <Unplug />
+              Disconnect
+            </ContextMenuItem>
+          </ContextMenuGroup>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => openHostFiles(host)}>
-            <FolderTree />
-            Remote files
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => openHostMonitor(host)}>
-            <Gauge />
-            Resource monitor
-          </ContextMenuItem>
+          <ContextMenuGroup>
+            <ContextMenuLabel>Tools</ContextMenuLabel>
+            <ContextMenuItem onClick={() => openHostFiles(host)}>
+              <FolderTree />
+              Remote files
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => openHostMonitor(host)}>
+              <Gauge />
+              Resource monitor
+            </ContextMenuItem>
+          </ContextMenuGroup>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() =>
-              patchUi({ hostEditor: host, hostEditorDefaults: null })
-            }
-          >
-            <Pencil />
-            Edit…
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => duplicateHost(host)}>
-            <Copy />
-            Duplicate
-          </ContextMenuItem>
+          <ContextMenuGroup>
+            <ContextMenuItem
+              onClick={() =>
+                patchUi({ hostEditor: host, hostEditorDefaults: null })
+              }
+            >
+              <Pencil />
+              Edit…
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => duplicateHost(host)}>
+              <Copy />
+              Duplicate
+            </ContextMenuItem>
+          </ContextMenuGroup>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            variant="destructive"
-            onClick={() => deleteHost(host)}
-          >
-            <Trash2 />
-            Delete
-          </ContextMenuItem>
+          <ContextMenuGroup>
+            <ContextMenuItem
+              variant="destructive"
+              onClick={() => deleteHost(host)}
+            >
+              <Trash2 />
+              Delete
+            </ContextMenuItem>
+          </ContextMenuGroup>
         </ContextMenuContent>
       </ContextMenu>
     </SidebarMenuItem>
@@ -731,21 +608,85 @@ function SshConnections({ query }: { query: string }) {
   );
 }
 
+/** The header row: the product mark, a live summary and the app's create and settings actions. */
+function AppMenu() {
+  const tabCount = useWorkspace((s) => s.tabs.length);
+  const hostCount = useAppData((s) => s.profiles.hosts.length);
+  const summary = `${tabCount} open · ${hostCount} SSH ${hostCount === 1 ? 'host' : 'hosts'}`;
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuButton
+                size="lg"
+                className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+              />
+            }
+          >
+            <img src={appIcon} alt="" aria-hidden className="size-8 shrink-0" />
+            <span className="grid min-w-0 flex-1 text-left leading-tight">
+              <span className="truncate text-sm font-semibold tracking-tight">
+                RTX-Terminal
+              </span>
+              <span className="truncate text-xs text-sidebar-foreground/70 tabular-nums">
+                {summary}
+              </span>
+            </span>
+            <ChevronsUpDown className="ml-auto opacity-60" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="bottom" align="start" className="w-56">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Create</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => newTab()}>
+                <SquareTerminal />
+                New terminal
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  patchUi({ hostEditor: 'new', hostEditorDefaults: null })
+                }
+              >
+                <Server />
+                New SSH connection…
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => patchUi({ historyOpen: true })}>
+                <History />
+                Command history
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => patchUi({ settingsOpen: true })}>
+                <Settings />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => patchUi({ aboutOpen: true })}>
+                <Info />
+                About RTX-Terminal
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
 export function AppSidebar() {
   const [query, setQuery] = useState('');
   // Existing Date.now() calls below run only inside user action handlers to stamp edits.
   return (
-    <Sidebar collapsible="offcanvas" className="top-9 h-[calc(100svh-2.25rem)]">
-      <SidebarHeader className="gap-3">
-        <div className="flex items-center gap-2 px-1 pt-1">
-          <img src={appIcon} alt="" aria-hidden className="size-7 shrink-0" />
-
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-sm font-semibold tracking-tight">
-              RTX-Terminal
-            </span>
-          </div>
-        </div>
+    // `inset` paints the window in the sidebar colour and lifts the workspace out of it as a
+    // rounded card. The container sits below the 36px menu bar instead of at the viewport top.
+    <Sidebar
+      variant="inset"
+      collapsible="offcanvas"
+      className="top-9 h-[calc(100svh-2.25rem)]"
+    >
+      <SidebarHeader className="gap-2">
+        <AppMenu />
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <SidebarInput
@@ -762,38 +703,22 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <OpenTerminals query={query} />
-        <SessionGroups query={query} />
         <SavedCommands query={query} />
         <SshConnections query={query} />
       </SidebarContent>
-      <SidebarFooter className="flex-row gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="flex-1 justify-start"
-          onClick={() =>
-            patchUi({ profileEditor: 'new', profileEditorDefaults: null })
-          }
-        >
-          <Plus data-icon="inline-start" />
-          New session
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="New group"
-          onClick={() => patchUi({ groupEditor: 'new' })}
-        >
-          <FolderPlus />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Settings"
-          onClick={() => patchUi({ settingsOpen: true })}
-        >
-          <Settings />
-        </Button>
+      <SidebarFooter className="gap-2">
+        {/* SidebarSeparator's own mx-2 overshoots the footer padding; c-sidebar-1 zeroes it the same way. */}
+        <SidebarSeparator className="mx-0" />
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => patchUi({ settingsOpen: true })}>
+              <RowIcon>
+                <Settings />
+              </RowIcon>
+              <span>Settings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

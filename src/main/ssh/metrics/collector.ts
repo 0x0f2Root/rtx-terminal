@@ -65,7 +65,10 @@ export const METRICS_COMMAND = [
   "printf '@@UP@@\\n'; cat /proc/uptime 2>/dev/null",
   "printf '@@NPROC@@\\n'; nproc 2>/dev/null",
   "printf '@@UNAME@@\\n'; uname -sr 2>/dev/null",
-  "printf '@@PROC@@\\n'; ps -eo pid=,ppid=,user=,stat=,etimes=,pcpu=,pmem=,rss=,comm= 2>/dev/null",
+  // procps prints the numeric UID when a name is wider than the default 8-column field
+  // (systemd-resolve, containerd users); the wider field keeps names, the fallback covers a ps
+  // that rejects field widths.
+  "printf '@@PROC@@\\n'; ps -eo pid=,ppid=,user:32=,stat=,etimes=,pcpu=,pmem=,rss=,comm= 2>/dev/null || ps -eo pid=,ppid=,user=,stat=,etimes=,pcpu=,pmem=,rss=,comm= 2>/dev/null",
 ].join('\n');
 
 const DEFAULT_TIMEOUT_MS = 8000;

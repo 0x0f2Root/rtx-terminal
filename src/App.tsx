@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import { useEffect, useLayoutEffect } from 'react';
 import { RotateCw, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,11 +19,6 @@ import { CommandsDialog } from '@/features/commands/CommandsDialog';
 import { ConfirmRunDialog } from '@/features/commands/ConfirmRunDialog';
 import { HistoryDialog } from '@/features/history/HistoryDialog';
 import { CommandPalette } from '@/features/palette/CommandPalette';
-import {
-  GroupEditorDialog,
-  ProfileEditorDialog,
-  RenameTabDialog,
-} from '@/features/sessions/SessionDialogs';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { CredentialDialog } from '@/features/ssh/CredentialDialog';
 import { HostEditorDialog } from '@/features/ssh/HostEditorDialog';
@@ -34,6 +30,7 @@ import { AppMenuBar } from '@/features/shell/AppMenuBar';
 import { installShortcuts } from '@/features/shortcuts';
 import { AppHeader } from '@/features/shell/AppHeader';
 import { AppSidebar } from '@/features/shell/AppSidebar';
+import { RenameTabDialog } from '@/features/shell/RenameTabDialog';
 import { StatusBar } from '@/features/shell/StatusBar';
 import { installTerminalRouting } from '@/features/terminal/registry';
 import { Workspace } from '@/features/workspace/Workspace';
@@ -72,8 +69,10 @@ function MainRegion() {
       <div className="flex min-h-0 flex-1 items-center justify-center bg-workspace">
         <Empty>
           <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <TriangleAlert />
+            <EmptyMedia>
+              <IconTile variant="elevated" size="lg" aria-hidden="true">
+                <TriangleAlert />
+              </IconTile>
             </EmptyMedia>
             <EmptyTitle>Settings could not be loaded</EmptyTitle>
             <EmptyDescription>{error}</EmptyDescription>
@@ -163,7 +162,9 @@ function App() {
           className="min-h-0 flex-1"
         >
           <AppSidebar />
-          <SidebarInset className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          {/* The tab bar and status bar share the sidebar colour in the dark themes, so the
+              inset card gets the hairline the primitive gives its floating variant. */}
+          <SidebarInset className="flex min-h-0 min-w-0 flex-col overflow-hidden md:peer-data-[variant=inset]:ring-1 md:peer-data-[variant=inset]:ring-sidebar-border">
             <AppHeader />
             <MainRegion />
             <StatusBar />
@@ -177,8 +178,6 @@ function App() {
       <HistoryDialog />
       <SettingsDialog />
       <AboutDialog />
-      <ProfileEditorDialog />
-      <GroupEditorDialog />
       <RenameTabDialog />
       <HostsDialog />
       <HostEditorDialog />

@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ClipboardPaste,
@@ -14,7 +15,6 @@ import {
   X,
 } from 'lucide-react';
 import { Badge } from '@/components/reui/badge';
-import { ShortcutKeys } from '@/components/shortcut-keys';
 import { Button } from '@/components/ui/button';
 import {
   ContextMenu,
@@ -23,7 +23,6 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -47,24 +46,13 @@ import {
   openPalette,
   openSearch,
   runCommand,
-  shortcutFor,
   splitActive,
 } from '../actions';
+import { MenuShortcut } from '../menu-shortcut';
 import { SshPaneStatus } from '../ssh/SshPaneStatus';
 import { ensureController, getController } from './registry';
 import { TerminalSearch } from './TerminalSearch';
 import { terminalColors } from './themes';
-
-function MenuShortcut({ action }: { action: string }) {
-  const accelerator = useAppData((s) =>
-    shortcutFor(action, s.preferences.shortcuts),
-  );
-  return accelerator ? (
-    <ContextMenuShortcut>
-      <ShortcutKeys accelerator={accelerator} />
-    </ContextMenuShortcut>
-  ) : null;
-}
 
 export function TerminalPane({
   paneId,
@@ -167,8 +155,10 @@ export function TerminalPane({
           <div className="absolute inset-0 flex items-center justify-center bg-workspace/90 p-6">
             <Empty className="max-w-md">
               <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <SquareTerminal />
+                <EmptyMedia>
+                  <IconTile variant="elevated" size="lg" aria-hidden="true">
+                    <SquareTerminal />
+                  </IconTile>
                 </EmptyMedia>
                 <EmptyTitle>The shell could not start</EmptyTitle>
                 <EmptyDescription>{pane.error}</EmptyDescription>

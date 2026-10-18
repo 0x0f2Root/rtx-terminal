@@ -39,8 +39,8 @@ const columns: ColumnDef<DataGridFeatures, ProcessMetric>[] = [
     header: ({ column }) => (
       <DataGridColumnHeader title="User" column={column} />
     ),
-    size: 104,
-    meta: { cellClassName: 'text-muted-foreground' },
+    size: 96,
+    meta: { cellClassName: 'truncate text-muted-foreground' },
   },
   {
     // ps reports CPU time over the process lifetime, so this is an average, not current load.
@@ -61,7 +61,7 @@ const columns: ColumnDef<DataGridFeatures, ProcessMetric>[] = [
       <DataGridColumnHeader title="Mem %" column={column} />
     ),
     cell: ({ row }) => row.original.memoryPercent.toFixed(1),
-    size: 88,
+    size: 80,
     sortDescFirst: true,
     meta: NUMERIC,
   },
@@ -72,7 +72,7 @@ const columns: ColumnDef<DataGridFeatures, ProcessMetric>[] = [
       <DataGridColumnHeader title="Resident" column={column} />
     ),
     cell: ({ row }) => formatBytes(row.original.rss),
-    size: 104,
+    size: 96,
     sortDescFirst: true,
     meta: {
       ...NUMERIC,
@@ -102,6 +102,7 @@ const columns: ColumnDef<DataGridFeatures, ProcessMetric>[] = [
       cellClassName: `${NUMERIC.cellClassName} text-muted-foreground`,
     },
   },
+  // meta.fillWidth only widens body cells, so the data-grid keeps it on the last column.
   {
     id: 'name',
     accessorKey: 'name',
@@ -113,8 +114,8 @@ const columns: ColumnDef<DataGridFeatures, ProcessMetric>[] = [
         {row.original.name}
       </span>
     ),
-    size: 240,
-    minSize: 160,
+    size: 180,
+    minSize: 120,
     meta: { fillWidth: true },
   },
 ];

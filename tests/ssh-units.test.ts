@@ -224,9 +224,6 @@ describe('SSH host validation', () => {
   it('drops invalid hosts when loading the saved file and never keeps secrets', () => {
     const file = parseProfilesFile({
       version: 1,
-      groups: [],
-      profiles: [],
-      recent: [],
       hosts: [
         { id: 'h1', ...valid, password: 'leak' },
         { id: 'h2', ...valid, host: '-oProxyCommand=x' },
@@ -235,10 +232,7 @@ describe('SSH host validation', () => {
     });
     expect(file.hosts.map((h) => h.id)).toEqual(['h1']);
     expect(file.hosts[0]).not.toHaveProperty('password');
-    expect(
-      parseProfilesFile({ version: 1, groups: [], profiles: [], recent: [] })
-        .hosts,
-    ).toEqual([]);
+    expect(parseProfilesFile({ version: 1 }).hosts).toEqual([]);
   });
 });
 

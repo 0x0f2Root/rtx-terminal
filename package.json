@@ -1,7 +1,7 @@
 {
   "name": "RTX-Terminal",
   "productName": "RTX-Terminal",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "A keyboard-driven, GPU-accelerated terminal for Linux built on Electron, xterm.js and node-pty.",
   "keywords": [],

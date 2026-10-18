@@ -1,3 +1,4 @@
+import { IconTile } from '@/components/reui/icon-tile';
 import { useMemo, useState } from 'react';
 import {
   Bookmark,
@@ -134,8 +135,10 @@ export function HistoryDialog() {
           {visible.length === 0 ? (
             <Empty className="h-full">
               <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <History />
+                <EmptyMedia>
+                  <IconTile variant="elevated" size="lg" aria-hidden="true">
+                    <History />
+                  </IconTile>
                 </EmptyMedia>
                 <EmptyTitle>
                   {mode === 'off'
