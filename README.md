@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="public/rtx.png" alt="RTX-Terminal in the Glass theme: a zsh session with the sidebar showing open terminals, saved commands and SSH hosts" width="900">
+  <img src="public/rtx.png" alt="RTX-Terminal with colored tabs: Claude Code in a split pane next to an SSH session on a Debian server, with the sidebar showing open terminals, saved commands and SSH hosts" width="900">
 </p>
 
 ## Install
