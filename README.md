@@ -82,7 +82,7 @@ clean uninstall. Passwords and passphrases live in your system keyring, never in
 - SSH tabs sit next to local ones, work in split panes and can be disconnected and reconnected.
 
 <p align="center">
-  <img src="public/rtx2.png" alt="Colored tabs with a local shell and an SSH session side by side" width="900">
+  <img src="public/split-ssh.png" alt="A split pane with btop running locally next to an SSH session on a Debian server" width="900">
 </p>
 
 ### Remote file manager
@@ -92,7 +92,7 @@ clean uninstall. Passwords and passphrases live in your system keyring, never in
   name already exists, and the safe choice keeps both copies.
 
 <p align="center">
-  <img src="public/RTX4.png" alt="The SFTP file manager listing a remote directory" width="900">
+  <img src="public/file-manager.png" alt="The SFTP file manager listing the root directory of a Debian server, with symlinks, permissions and owners" width="900">
 </p>
 
 ### Resource monitor
@@ -101,7 +101,7 @@ clean uninstall. Passwords and passphrases live in your system keyring, never in
 - A sortable, filterable process table.
 
 <p align="center">
-  <img src="public/rtx3.png" alt="The SSH resource monitor with charts and a process table" width="900">
+  <img src="public/resource-monitor.png" alt="The SSH resource monitor showing live CPU, memory, disk and network charts for a Debian server" width="900">
 </p>
 
 ### Look and feel
