@@ -6,9 +6,3 @@ src/hooks
 # Agent tooling installed by the ReUI installer.
 .agents
 .claude
-.cursor
-.gemini
-.opencode
-AGENTS.md
-opencode.json
-.mcp.json
