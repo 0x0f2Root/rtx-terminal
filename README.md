@@ -7,8 +7,7 @@
 </h1>
 
 <p align="center">
-  A modern, keyboard-driven terminal for Linux with tabs, split panes, saved commands,<br>
-  SSH sessions, a remote file manager and a live resource monitor.
+  A modern, keyboard-driven terminal for Linux.
 </p>
 
 <p align="center">
@@ -19,39 +18,8 @@
 </p>
 
 <p align="center">
-  <a href="#install">Install</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#keyboard-shortcuts">Shortcuts</a> ·
-  <a href="#build-from-source">Build from source</a> ·
-  <a href="#architecture">Architecture</a>
-</p>
-
-<p align="center">
   <img src="public/rtx.png" alt="RTX-Terminal with colored tabs: Claude Code in a split pane next to an SSH session on a Debian server, with the sidebar showing open terminals, saved commands and SSH hosts" width="900">
 </p>
-
-## Install
-
-Download the latest `.deb` from the [Releases page](https://github.com/0x0f2Root/rtx-terminal/releases/latest)
-and install it with apt, which also pulls in the libraries Electron needs:
-
-```bash
-sudo apt install ./rtx-terminal_0.0.1_amd64.deb
-```
-
-Then start **RTX-Terminal** from your application menu, or run `RTX-Terminal` in a shell.
-
-To remove it:
-
-```bash
-sudo apt remove rtx-terminal
-```
-
-Your settings, saved commands and hosts stay in `~/.config/rtx-terminal`; delete that folder for a
-clean uninstall. Passwords and passphrases live in your system keyring, never in those files.
-
-> RTX-Terminal currently targets Debian, Ubuntu and their derivatives on x64. Other distributions can
-> [build from source](#build-from-source).
 
 ## Features
 
@@ -168,22 +136,6 @@ npm test             # vitest
 npm run package      # unpacked app in out/RTX-Terminal-linux-x64/
 npm run make:deb     # out/make/deb/x64/rtx-terminal_<version>_amd64.deb
 ```
-
-Packaging rebuilds `node-pty` against the bundled Electron, ships only its Linux binary and
-JavaScript, and bundles everything else with Vite. The `.deb` declares Electron's runtime libraries
-(GTK 3, NSS, libdrm, libgbm, …) as dependencies.
-
-## Architecture
-
-| Layer            | Responsibility                                                                                                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Main process** | Owns PTYs, SSH connections, SFTP, files and native dialogs. Every IPC message is validated, and each session belongs to the window that created it. Output is coalesced (5 ms or 64 KB) with xterm.js flow control. |
-| **Preload**      | Exposes a small, typed `window.rtx` API through `contextBridge`; the page has no Node.js access.                                                                                                                   |
-| **Renderer**     | React 19 UI built on shadcn/ui and ReUI. One `TerminalController` per pane lives outside React, so panes move between splits without losing scrollback or restarting their process.                               |
-| **Sessions**     | A `SessionBackend` interface implemented by node-pty (local) and ssh2 (SSH). The renderer only names a saved host id; the main process reads the host from disk and asks the renderer about host keys and secrets.   |
-
-**Tech stack:** Electron, React, TypeScript, Vite, xterm.js, node-pty, ssh2, Tailwind CSS, shadcn/ui,
-ReUI, Electron Forge.
 
 ## Contributing
 
